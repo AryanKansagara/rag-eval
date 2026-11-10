@@ -34,7 +34,7 @@ function useHeroModel() {
     const gold = Object.entries(ds.qrels[pickQ]).sort((a, b) => b[1] - a[1])[0][0]
     const text = (id: string) => { const c = ctx.chunks.get(id)!; return `${c.title} · ${c.text.replace(/^#.*\n+/, '').replace(/\s+/g, ' ')}` }
     const query = ds.queries.find(q => q.id === pickQ)!
-    return { evals, lists, gold, text, query, n: evals.base.scored.length }
+    return { evals, lists, gold, text, query, n: evals.base.scored.length, labelled: Object.keys(ds.qrels).length }
   }, [])
 }
 
@@ -58,7 +58,7 @@ function LiveRanking() {
 
   return (
     <div className="live" aria-label="Live ranked list for one sample query">
-      <div className="live-bar"><span className="dot" aria-hidden="true" /> retrieval run · synthetic help centre · {m.n} labelled queries</div>
+      <div className="live-bar"><span className="dot" aria-hidden="true" /> retrieval run · synthetic help centre · {m.labelled} labelled queries</div>
       <div className="live-q"><small>Query {m.query.id}</small><p>&ldquo;{m.query.text}&rdquo;</p></div>
       <div className="live-toggles">
         <button type="button" className="chip" aria-pressed={hybrid} onClick={() => { setAuto(false); setHybrid(!hybrid) }}><i aria-hidden="true" />Hybrid + BM25</button>
@@ -82,7 +82,7 @@ function LiveRanking() {
         <div className="dials">
           <Dial value={ev.agg['ndcg@10'].mean} from={m.evals.base.agg['ndcg@10'].mean} label="nDCG@10" />
           <Dial value={ev.agg['recall@5'].mean} from={m.evals.base.agg['recall@5'].mean} label="Recall@5" />
-          <p className="live-note">Across all {m.n} queries. Gold chunk here: rank {goldRank || '>' + SHOW}.</p>
+          <p className="live-note">Across the {m.n} queries with gold. Gold chunk here: rank {goldRank || '>' + SHOW}.</p>
         </div>
       </div>
       <div className="live-foot"><span>Grades 0 to 3 from qrels. Ranks re-scored by the same engine the app uses.</span><Link href="/app?sample=ledgerly">Open this run</Link></div>

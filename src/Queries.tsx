@@ -69,7 +69,7 @@ export default function Queries({ project, ds, w }: TabProps) {
         {list.length === 0 ? <p className="muted">Nothing in this bucket. {filter === 'unlabelled' ? '' : 'Nice.'}</p> : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Query</th><th>Bucket</th><th className="num">First relevant</th><th className="num">nDCG@10</th><th>Fix</th></tr></thead>
+              <thead><tr><th>Query</th><th>Bucket</th><th className="num">First relevant</th><th className="num">nDCG@10</th><th className="hide-sm">Fix</th></tr></thead>
               <tbody>{list.slice(0, 200).map(r => (
                 <FragmentRow key={r.queryId} open={open === r.queryId} onToggle={() => setOpen(open === r.queryId ? null : r.queryId)}
                   cells={<>
@@ -77,7 +77,7 @@ export default function Queries({ project, ds, w }: TabProps) {
                     <td><span className={`badge bk-${r.bucket}`}>{BUCKETS.find(b => b.id === r.bucket)!.label}</span>{r.boundaryCut && <span className="badge bk-cut" title="Gold span split across chunks">cut</span>}</td>
                     <td className="num">{r.firstRank || '—'}</td>
                     <td className="num">{fmt3(scores.get(r.queryId))}</td>
-                    <td className="small muted">{r.boundaryCut ? 'Re-chunk: the answer is split. ' : ''}{SUGGEST[r.bucket]}{r.bucket === 'unlabelled' && <> · <Link href={`/app/p/${project.id}/label?q=${encodeURIComponent(r.queryId)}`}>label</Link></>}</td>
+                    <td className="small muted hide-sm">{r.boundaryCut ? 'Re-chunk: the answer is split. ' : ''}{SUGGEST[r.bucket]}{r.bucket === 'unlabelled' && <> · <Link href={`/app/p/${project.id}/label?q=${encodeURIComponent(r.queryId)}`}>label</Link></>}</td>
                   </>}>
                   <div className="detail">
                     <div>

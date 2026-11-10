@@ -632,3 +632,12 @@ details summary { cursor: pointer; color: var(--accent); font-weight: 500; margi
   .run-list li { grid-template-columns: 1fr auto; }
   .run-list li .muted { display: none; }
 }
+.label-query .shortcuts dt { min-width: 64px; }
+.label-query .shortcuts { gap: 4px; font-size: 14px; }
+@media (max-width: 960px) { .hero-inner { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 720px) {
+  .toolbar #run { flex: 1 1 100%; }
+  .live-list .txt { white-space: nowrap; }
+  .hero h1 { font-size: 2.6rem; }
+}
+.report td.num { white-space: nowrap; }

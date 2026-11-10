@@ -8,7 +8,7 @@ const ok = (label, r) => { if (r.error) { console.log('FAIL', label, r.error.mes
 const up = await sb.auth.signUp({ email, password }); ok('sign up ' + email, up)
 if (!up.data.session) ok('sign in', await sb.auth.signInWithPassword({ email, password }))
 const id = crypto.randomUUID(), vid = crypto.randomUUID()
-ok('upsert team', await sb.from('projects').upsert({ id, app: 'rag-eval', name: 'QA team', data: { project: { id, name: 'QA team', config: { people: { Ann: { tz: 'UTC' } } } } }, updated_at: new Date().toISOString() }))
+ok('upsert project', await sb.from('projects').upsert({ id, app: 'rag-eval', name: 'QA project', data: { project: { id, name: 'QA project', config: { people: { Ann: { tz: 'UTC' } } } } }, updated_at: new Date().toISOString() }))
 ok('insert snapshot', await sb.from('project_versions').insert({ id: vid, project_id: id, label: 'Q3 2026', data: { id: vid, period: '2026-Q3', pages: 10 } }))
 const rows = await sb.from('projects').select('id,name,data').eq('app', 'rag-eval'); ok('read back', rows)
 console.log(rows.data?.length === 1 && rows.data[0].data.project.config.people.Ann ? 'ok   round trip matches' : 'FAIL round trip')
