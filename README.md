@@ -2,7 +2,7 @@
 
 Retrieval evaluation for RAG systems, without an LLM judge. Import the ranked lists your retriever logged, your qrels or gold answer spans, and your chunks file, and see where retrieval breaks and whether the new pipeline version is actually better.
 
-Live: https://rag-eval.vercel.app
+Live: https://rag-eval-seven.vercel.app
 
 ## The pain
 
