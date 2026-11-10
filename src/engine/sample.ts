@@ -150,7 +150,7 @@ let cache: SampleBuild | null = null
 export function buildSample(): SampleBuild {
   if (cache) return cache
   const r = rng(2026)
-  const p = (a: string[]) => a[Math.floor(r() * a.length)]
+  const p = <T,>(a: T[]): T => a[Math.floor(r() * a.length)]
   const docs: SampleBuild['docs'] = []
   const spans: GoldSpan[] = []
   const queries: Query[] = []
