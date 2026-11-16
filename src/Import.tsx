@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { autoMap, corpusToJsonl, FIELDS, FORMATS, mergeFragment, qrelsToTsv, queriesToJsonl, readFile, runToJsonl, validate, type Format, type Mapping, type Parsed } from './engine/parse.ts'
 import { emptyDataset, type Dataset } from './engine/types.ts'
 import type { TabProps } from './Project.tsx'
-import { createBlankProject, summarize } from './projectData.ts'
+import { createBlankProject, summarize, isPublicSample } from './projectData.ts'
 import { putData, saveProject, uuid } from './store.ts'
 import { RAW_SYNC_LIMIT, useSync } from './sync.ts'
 import { ask, download, go, Link, toast } from './ui.tsx'
@@ -67,7 +67,7 @@ export default function DataTab({ project, ds, update }: TabProps) {
       )}
       <div className="panel">
         <div className="panel-head"><h2>Import</h2><span className="muted small">JSONL · JSON · CSV · TSV · TREC run/qrels · LangChain · LlamaIndex · Ragas · BEIR</span></div>
-        {project.sampleId && <p className="muted small">This is a synthetic sample, so its data is read-only. Importing here starts a new project. Want to rehearse? Download the sample files below and drop them back in.</p>}
+        {project.sampleId && <p className="muted small">{isPublicSample(project.sampleId) ? 'This is the public Natural Questions sample' : 'This is a synthetic sample'}, so its data is read-only. Importing here starts a new project. Want to rehearse? Download the sample files below and drop them back in.</p>}
         <div className={`drop${drag ? ' over' : ''}`} role="button" tabIndex={0} aria-label="Choose files to import"
           onClick={() => input.current?.click()} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.current?.click() } }}
           onDragOver={e => { e.preventDefault(); setDrag(true) }} onDragLeave={() => setDrag(false)}
@@ -104,7 +104,7 @@ export default function DataTab({ project, ds, update }: TabProps) {
         </div>
         <div className="panel">
           <h2>Import history</h2>
-          {project.imports.length === 0 ? <p className="muted small">{project.sampleId ? 'Built from the synthetic sample.' : 'Nothing imported yet.'}</p> : (
+          {project.imports.length === 0 ? <p className="muted small">{isPublicSample(project.sampleId) ? <>Natural Questions test queries, judgments and Wikipedia passages from BEIR (CC BY-SA). <Link href="/docs#samples">Source and method</Link>.</> : project.sampleId ? 'Built from the synthetic sample.' : 'Nothing imported yet.'}</p> : (
             <ul className="plain small">{[...project.imports].reverse().map(i => <li key={i.id}><b>{i.fileName}</b> <span className="muted">· {FORMATS[i.kind]?.label ?? i.kind} · {i.summary}{i.skipped ? ` · ${i.skipped} skipped` : ''} · {new Date(i.at).toLocaleString()}</span></li>)}</ul>
           )}
           <h3 style={{ marginTop: 16 }}>Download as files</h3>

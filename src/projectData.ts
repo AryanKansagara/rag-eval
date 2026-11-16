@@ -2,24 +2,39 @@ import { useEffect, useMemo, useState } from 'react'
 import { applyWhatIf, bucketCounts, triage, type Snapshot, type WhatIf } from './engine/analysis.ts'
 import { diagnose, type Diagnostics } from './engine/chunks.ts'
 import { evaluateRows, makeCtx, METRICS, type Ctx, type RunEval } from './engine/metrics.ts'
+import { buildPublicSample, PUBLIC_SAMPLE_META, type PublicSampleFile } from './engine/publicSample.ts'
 import { buildSample, SAMPLE_META } from './engine/sample.ts'
 import { bm25, type Bm25 } from './engine/text.ts'
 import { emptyDataset, type Dataset, type Query, type Qrels, type Run } from './engine/types.ts'
 import { blankSettings, getData, getDefaults, getProjects, saveProject, useProjects, uuid, type Project, type Settings } from './store.ts'
 
-export const SAMPLES = [SAMPLE_META]
+export const SAMPLES: { id: string; name: string; blurb: string; kind?: 'public' }[] = [SAMPLE_META, PUBLIC_SAMPLE_META]
+export const isPublicSample = (id?: string) => id === PUBLIC_SAMPLE_META.id
+
+let publicFile: Promise<PublicSampleFile> | null = null
+/** Source, licence and selection notes of the public sample (fetched once, on demand). */
+export const publicSampleFile = () => publicFile ??= fetch(PUBLIC_SAMPLE_META.file).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() as Promise<PublicSampleFile> }).catch(e => { publicFile = null; throw e })
+let publicDs: Dataset | null = null
+export async function sampleDataset(id: string): Promise<Dataset> {
+  if (!isPublicSample(id)) return buildSample().ds
+  return publicDs ??= buildPublicSample(await publicSampleFile())
+}
 
 export function summarize(ds: Dataset, labels: Qrels = {}): NonNullable<Project['summary']> {
   return { chunks: ds.corpus.length, docs: new Set(ds.corpus.map(c => c.docId)).size, queries: new Set([...ds.queries.map(q => q.id), ...ds.runs.flatMap(r => r.rows.map(x => x.queryId))]).size, runs: ds.runs.length, judged: Object.keys({ ...ds.qrels, ...labels }).length }
 }
 
-export async function createSampleProject(): Promise<Project> {
-  const existing = getProjects().find(p => p.sampleId === SAMPLE_META.id)
+export async function createSampleProject(id: string = SAMPLE_META.id): Promise<Project> {
+  const meta = SAMPLES.find(s => s.id === id) ?? SAMPLE_META
+  const existing = getProjects().find(p => p.sampleId === meta.id)
   if (existing) return existing
-  const { ds } = buildSample()
+  const ds = await sampleDataset(meta.id)
   const now = Date.now()
-  const settings: Settings = { ...blankSettings(), baseRunId: ds.runs[0].id, candRunId: ds.runs[1].id }
-  const p: Project = { id: uuid(), name: SAMPLE_META.name, createdAt: now, updatedAt: now, settings, labels: {}, snapshots: [], sampleId: SAMPLE_META.id, summary: summarize(ds), imports: [] }
+  const pub = isPublicSample(meta.id)
+  const settings: Settings = { ...blankSettings(), baseRunId: pub ? PUBLIC_SAMPLE_META.baseRunId : ds.runs[0].id, candRunId: pub ? PUBLIC_SAMPLE_META.candRunId : ds.runs[1].id }
+  // Absolute floors depend on the system; open-domain search over Wikipedia sits far below a help centre, so gate on drops only.
+  if (pub) settings.thresholds = settings.thresholds.map(({ min: _min, ...t }) => t)
+  const p: Project = { id: uuid(), name: meta.name, createdAt: now, updatedAt: now, settings, labels: {}, snapshots: [], sampleId: meta.id, summary: summarize(ds), imports: [] }
   // One snapshot per run, so History has something to compare from the first visit.
   const w = workspace(ds, {}, settings.level, settings.minGrade)
   p.snapshots = ds.runs.map(r => makeSnapshot(w, r, settings, r.name, r.createdAt))
@@ -35,17 +50,19 @@ export function useProject(id: string) {
   const list = useProjects()
   const project = list?.find(p => p.id === id) ?? null
   const [ds, setDs] = useState<Dataset | null>(null)
+  const [loadError, setLoadError] = useState(false)
   const importsKey = project ? project.imports.map(i => i.id).join(',') : ''
   useEffect(() => {
     if (!project) return
     let live = true
-    if (project.sampleId) { setDs(buildSample().ds); return }
+    setLoadError(false)
+    if (project.sampleId) { void sampleDataset(project.sampleId).then(d => { if (live) setDs(d) }, () => { if (live) setLoadError(true) }); return () => { live = false } }
     void getData(project.id).then(d => { if (live) setDs(d ?? emptyDataset()) })
     return () => { live = false }
   }, [project?.id, project?.sampleId, importsKey])
   const update = (patch: Partial<Project>) => project && saveProject({ ...project, ...patch })
   const setSettings = (patch: Partial<Settings>) => project && saveProject({ ...project, settings: { ...project.settings, ...patch } })
-  return { loading: list === null || (project !== null && ds === null), project, ds, update, setSettings }
+  return { loading: list === null || (project !== null && ds === null && !loadError), loadError, project, ds, update, setSettings }
 }
 
 // ---------- Shared derived state, memoised per dataset + labels + level ----------
@@ -71,7 +88,8 @@ export function mergeLabels(qrels: Qrels, labels: Qrels): Qrels {
 }
 
 export function workspace(ds: Dataset, labels: Qrels, level: Settings['level'], minGrade: number): Workspace {
-  const key = `${level}|${minGrade}|${JSON.stringify(labels)}`
+  const { iters, gain } = getDefaults()
+  const key = `${level}|${minGrade}|${iters}|${gain}|${JSON.stringify(labels)}`
   let m = wsCache.get(ds)
   if (!m) wsCache.set(ds, m = new Map())
   const hit = m.get(key)
@@ -82,7 +100,6 @@ export function workspace(ds: Dataset, labels: Qrels, level: Settings['level'], 
   let bmv: Bm25 | undefined | null = null
   let dg: Diagnostics | null = null
   const evals = new Map<string, RunEval>()
-  const iters = getDefaults().iters
   const w: Workspace = {
     ds: full, qrels, ctx,
     queries: new Map(ds.queries.map(q => [q.id, q])),
@@ -91,7 +108,7 @@ export function workspace(ds: Dataset, labels: Qrels, level: Settings['level'], 
     evalRun(run, mode = 'baseline') {
       const k = run.id + '|' + mode
       let e = evals.get(k)
-      if (!e) { e = evaluateRows(ctx, applyWhatIf(mode, run.rows, { bm: w.bm(), queries: w.queries }), METRICS, minGrade, iters); evals.set(k, e) }
+      if (!e) { e = evaluateRows(ctx, applyWhatIf(mode, run.rows, { bm: w.bm(), queries: w.queries }), METRICS, minGrade, iters, gain === 'linear'); evals.set(k, e) }
       return e
     },
   }

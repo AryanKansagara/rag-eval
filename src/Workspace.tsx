@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { createBlankProject, createSampleProject, SAMPLES } from './projectData.ts'
+import { createBlankProject, createSampleProject, isPublicSample, SAMPLES } from './projectData.ts'
 import { deleteProject, saveProject, useProjects, type Project } from './store.ts'
 import { useSync } from './sync.ts'
 import { metricLabel } from './engine/metrics.ts'
-import { ask, fmt3, go, Link, SyntheticBadge, toast } from './ui.tsx'
+import { ask, fmt3, go, Link, SampleBadge, toast } from './ui.tsx'
 
 export default function Workspace() {
   const list = useProjects()
@@ -18,17 +18,22 @@ export default function Workspace() {
     if (!s || list === null || busy) return
     if (!SAMPLES.some(x => x.id === s)) return
     setBusy(s)
-    void createSampleProject().then(p => go(`/app/p/${p.id}${tab ? '/' + tab : ''}`, { replace: true }))
+    void createSampleProject(s).then(p => go(`/app/p/${p.id}${tab ? '/' + tab : ''}`, { replace: true }), () => { setBusy(null); go('/app', { replace: true }); toast('Could not load the sample. Check your connection and try again.', { tone: 'error' }) })
   }, [list, busy])
 
-  const openSample = async (id: string) => { setBusy(id); const p = await createSampleProject(); go(`/app/p/${p.id}`) }
+  const openSample = async (id: string) => {
+    setBusy(id)
+    try { const p = await createSampleProject(id); go(`/app/p/${p.id}`) }
+    catch { toast('Could not load the sample. Check your connection and try again.', { tone: 'error' }) }
+    finally { setBusy(null) }
+  }
   const newProject = async () => {
     const name = `RAG eval ${(list?.filter(p => !p.sampleId).length ?? 0) + 1}`
     const p = await createBlankProject(name)
     go(`/app/p/${p.id}/data`)
   }
 
-  if (list === null || busy) return <div className="boot" role="status"><span className="spinner" /> {busy ? 'Building the synthetic help centre' : 'Opening your projects'}</div>
+  if (list === null || busy) return <div className="boot" role="status"><span className="spinner" /> {busy ? (isPublicSample(busy) ? 'Loading the Natural Questions subset' : 'Building the synthetic help centre') : 'Opening your projects'}</div>
 
   return (
     <section className="page">
@@ -45,8 +50,8 @@ export default function Workspace() {
         <div className="onboard">
           <article className="onboard-card feature-card">
             <div className="eyebrow">Two minutes</div>
-            <h2>Try the sample</h2>
-            <p>A synthetic help centre with real-looking problems: fixed-size chunks that cut answers in half, error-code queries a dense retriever misses, a copy-pasted legacy page. Two runs to compare.</p>
+            <h2>Try a sample</h2>
+            <p>A synthetic help centre built to show chunking problems (answers cut in half, error-code queries a dense retriever misses, a copy-pasted legacy page), or a public benchmark slice: real Natural Questions queries and judgments from BEIR, with BM25 and cross-encoder runs over the full corpus.</p>
             <div className="stack-sm">
               {SAMPLES.map(s => (
                 <button key={s.id} type="button" className="sample-btn" onClick={() => void openSample(s.id)}>
@@ -92,7 +97,7 @@ function ProjectCard({ p }: { p: Project }) {
             <input name="n" defaultValue={p.name} autoFocus aria-label="Project name" onBlur={e => e.currentTarget.form?.requestSubmit()} />
           </form>
         ) : <h3><Link href={`/app/p/${p.id}`}>{p.name}</Link></h3>}
-        {p.sampleId && <SyntheticBadge />}
+        {p.sampleId && <SampleBadge id={p.sampleId} />}
       </div>
       <dl className="mini-stats">
         <div><dt>Runs</dt><dd>{p.summary?.runs ?? '—'}</dd></div>

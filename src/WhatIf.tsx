@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { hasRerank, WHATIF_LABEL, type WhatIf } from './engine/analysis.ts'
 import { compareEvals, firstRelevant, METRICS, metricLabel } from './engine/metrics.ts'
 import type { TabProps } from './Project.tsx'
-import { pickRuns } from './projectData.ts'
+import { isPublicSample, pickRuns } from './projectData.ts'
 import { fmt3, Link } from './ui.tsx'
 
 const MODES: WhatIf[] = ['rerank', 'bm25-rerank', 'bm25', 'hybrid']
@@ -56,7 +56,7 @@ export default function WhatIfTab({ project, ds, w }: TabProps) {
             </tbody>
           </table>
         </div>
-        <p className="muted small" style={{ margin: '10px 0 0' }}>* p &lt; 0.05 on a paired sign-flip randomisation test over queries. {!canRerank && 'No rerank scores in this run, so the logged-rerank row is hidden. '}{!canBm && 'Import the corpus to unlock BM25 and hybrid.'}</p>
+        <p className="muted small" style={{ margin: '10px 0 0' }}>* p &lt; 0.05 on a paired sign-flip randomisation test over queries. {!canRerank && 'No rerank scores in this run, so the logged-rerank row is hidden. '}{!canBm && 'Import the corpus to unlock BM25 and hybrid.'}{isPublicSample(project.sampleId) && 'BM25 here searches the 1,519 passages in this sample, not the full 2.68M-passage corpus the logged runs were scored on, so the BM25-only row is easier than the real task.'}</p>
       </div>
 
       {cur && (

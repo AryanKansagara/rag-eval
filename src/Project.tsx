@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 import type { Dataset, Level } from './engine/types.ts'
 import { makeSnapshot, pickRuns, useProject, useWorkspace, type Workspace } from './projectData.ts'
 import type { Project as P, Settings } from './store.ts'
-import { Empty, go, isTyping, Link, Modal, SyntheticBadge, toast } from './ui.tsx'
+import { Empty, go, isTyping, Link, Modal, SampleBadge, toast } from './ui.tsx'
 
 const Overview = lazy(() => import('./Overview.tsx'))
 const Queries = lazy(() => import('./Queries.tsx'))
@@ -27,7 +27,7 @@ export interface TabProps {
 const LEVELS: [Level, string][] = [['chunk', 'Chunk'], ['doc', 'Doc'], ['span', 'Gold span']]
 
 export default function ProjectView({ id, tab: rawTab }: { id: string; tab: string }) {
-  const { loading, project, ds, update, setSettings } = useProject(id)
+  const { loading, loadError, project, ds, update, setSettings } = useProject(id)
   const tab = (TABS.some(t => t[0] === rawTab) ? rawTab : 'overview') as Tab
   const w = useWorkspace(ds, project)
   const [help, setHelp] = useState(false)
@@ -59,6 +59,11 @@ export default function ProjectView({ id, tab: rawTab }: { id: string; tab: stri
   })
 
   if (loading) return <div className="boot" role="status"><span className="spinner" /> Scoring runs</div>
+  if (project && loadError) return (
+    <section className="page narrow center">
+      <Empty title="Could not load the sample data"><p className="muted">The public sample is downloaded on first use. Check your connection and reload.</p><button type="button" className="btn primary" onClick={() => location.reload()}>Reload</button></Empty>
+    </section>
+  )
   if (!project || !ds) return (
     <section className="page narrow center">
       <Empty title="Project not found"><p className="muted">It may have been deleted, or it lives on another device.</p><Link href="/app" className="btn primary">All projects</Link></Empty>
@@ -72,7 +77,7 @@ export default function ProjectView({ id, tab: rawTab }: { id: string; tab: stri
       <div className="proj-head">
         <div>
           <div className="eyebrow"><Link href="/app">Projects</Link></div>
-          <h1 className="row gap wrap">{project.name} {project.sampleId && <SyntheticBadge />}</h1>
+          <h1 className="row gap wrap">{project.name} {project.sampleId && <SampleBadge id={project.sampleId} />}</h1>
           {!empty && <p className="muted small" style={{ margin: 0 }}>{ds.runs.length} runs · {ds.corpus.length.toLocaleString()} chunks · {Object.keys(w!.qrels).length} judged queries</p>}
         </div>
         {!empty && (
