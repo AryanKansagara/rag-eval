@@ -101,8 +101,8 @@ export default function Docs() {
       <ul>
         <li><b>JSONL</b> with <code>query_id</code>, <code>query</code>, and a list under <code>retrieved</code>, <code>results</code>, <code>hits</code> or <code>documents</code>. Items may be ids or objects with <code>id</code>/<code>chunk_id</code>, <code>score</code>, <code>rerank_score</code>. Optional <code>answer</code> and <code>cited</code> (chunk ids) feed the wrong-citation bucket.</li>
         <li><b>CSV, long</b>: one row per retrieved chunk with <code>query_id, query, rank, chunk_id, score, rerank_score</code>. <b>CSV, wide</b>: one row per query with <code>retrieved_ids</code> separated by <code>|</code>.</li>
-        <li><b>LangChain / LangSmith</b> run exports (<code>inputs</code>/<code>outputs.documents</code>), <b>LlamaIndex</b> responses (<code>source_nodes</code>), <b>Ragas</b> rows (<code>user_input</code>, <code>retrieved_contexts</code> or <code>retrieved_context_ids</code>). Context strings are matched to chunks by text, so import the corpus first.</li>
-        <li><b>TREC run</b> files: <code>qid Q0 docid rank score tag</code>.</li>
+        <li><b>LangChain / LangSmith</b> run exports (<code>inputs</code>/<code>outputs.documents</code>), <b>LlamaIndex</b> responses (<code>source_nodes</code>), <b>Ragas</b> rows (<code>user_input</code>, <code>retrieved_contexts</code> or <code>retrieved_context_ids</code>). Context strings are matched to chunks by text when a corpus is loaded; passages that match nothing (or a Ragas file with no corpus at all) are added as chunks with hashed ids, so you can still read and label them. Ragas <code>reference_contexts</code> become judgments. Column-oriented JSON (<code>Dataset.to_dict()</code>, pandas <code>to_json()</code>) is read as rows.</li>
+        <li><b>TREC run</b> files: <code>qid Q0 docid rank score tag</code>, separated by spaces or tabs. Lines starting with <code>#</code> are skipped.</li>
       </ul>
       <p>Anything else: pick the format by hand and map the columns. The validation report lists every skipped row with its line number before you commit.</p>
 
@@ -117,7 +117,7 @@ export default function Docs() {
       <p>No qrels yet? Import a run and use the <b>Label</b> tab: the union of every run&rsquo;s top 10 per query, graded with keys 0 to 3.</p>
 
       <h2 id="corpus">Corpus / chunks file</h2>
-      <p>JSONL or CSV with <code>chunk_id</code>, <code>doc_id</code>, <code>text</code>, and <code>start</code>/<code>end</code> character offsets into the source document (LangChain: <code>add_start_index=True</code> gives <code>start_index</code>; LlamaIndex nodes carry <code>start_char_idx</code>/<code>end_char_idx</code>). Without offsets you still get sizes, duplicates and BM25, but not boundary cuts or re-chunking. A BEIR <code>corpus.jsonl</code> (<code>_id</code>, <code>title</code>, <code>text</code>) works too.</p>
+      <p>JSONL or CSV with <code>chunk_id</code>, <code>doc_id</code>, <code>text</code>, and <code>start</code>/<code>end</code> character offsets into the source document (LangChain: <code>add_start_index=True</code> gives <code>start_index</code>; LlamaIndex nodes carry <code>start_char_idx</code>/<code>end_char_idx</code>). Without offsets you still get sizes, duplicates and BM25, but not boundary cuts or re-chunking. A BEIR <code>corpus.jsonl</code> (<code>_id</code>, <code>title</code>, <code>text</code>) works too, and BEIR <code>queries.jsonl</code> (same keys, empty titles) is recognised as queries.</p>
 
       <h2 id="queries">Queries</h2>
       <p><code>query_id, query, tags, intent</code>. Tags (separated by <code>|</code>) and intent drive the slices on the Overview tab; length slices are automatic. Query text found in run logs is used when there is no queries file.</p>
@@ -126,7 +126,8 @@ export default function Docs() {
       <ul>
         <li><b>Recall@k</b>: relevant items in the top k divided by all relevant items known for the query. <b>Precision@k</b>: relevant in the top k divided by k. <b>Hit@k</b>: 1 if anything relevant is in the top k.</li>
         <li><b>MRR</b>: 1 / rank of the first relevant item over the logged list. <b>MAP</b>: average precision at each relevant hit, divided by all relevant items.</li>
-        <li><b>nDCG@k</b>: gain 2<sup>grade</sup> − 1, discount log2(rank + 1), normalised by the ideal ordering of every known grade.</li>
+        <li><b>nDCG@k</b>: gain 2<sup>grade</sup> − 1, discount log2(rank + 1), normalised by the ideal ordering of every known grade. trec_eval and pytrec_eval (so BEIR leaderboards) use the grade itself as gain; switch to linear gain in Settings to reproduce their numbers on graded qrels. With 0/1 judgments both give the same value.</li>
+        <li><b>Checked against trec_eval</b>: on the <code>qrels.test</code> / <code>results.test</code> pair shipped in the trec_eval repository, MAP, reciprocal rank, P@5, P@10, recall@5/10/100 and nDCG@5/10/100 match its published output to four decimals. The fixture is part of the test suite.</li>
         <li>"Relevant" means grade ≥ 1 by default (Settings). Queries with no relevant item are excluded from means and reported separately; unlabelled queries are excluded too.</li>
         <li><b>Levels</b>: chunk (ids as judged), doc (chunks collapse to their documents), gold span (a chunk&rsquo;s grade is how much of the gold span its offsets cover: all 3, at least half 2, any 1).</li>
         <li><b>Confidence intervals</b>: 95% percentile bootstrap over queries (1,000 resamples by default, seeded). <b>Paired tests</b>: bootstrap of per-query differences shifted to the null, and a sign-flip randomisation test, 2,000 iterations each, over queries judged in both runs.</li>
@@ -140,7 +141,17 @@ export default function Docs() {
 
       <h2 id="privacy">Data, accounts and sync</h2>
       <p>Projects live in your browser (IndexedDB). Accounts are optional: signing in syncs project settings, labels, thresholds and snapshots, plus the raw dataset when it is under 1.5 MB per project. Larger corpora and logs stay on the device where they were imported. Export everything as JSON or delete your cloud data and account from the account menu.</p>
-      <p className="muted small">Assumptions as of November 2026. The sample help centre, its queries and both runs are synthetic, written for this demo. <Link href="/app?sample=ledgerly">Open the sample</Link>.</p>
+      <h2 id="samples">Sample data</h2>
+      <p><b>Ledgerly help centre</b> is synthetic: the documents, queries, gold spans and both runs were written and simulated for this demo, to show chunk-boundary problems that public benchmarks do not carry offsets for. <Link href="/app?sample=ledgerly">Open it</Link>.</p>
+      <p><b>Natural Questions (BEIR subset)</b> is public data, not generated. <Link href="/app?sample=nq-beir">Open it</Link>.</p>
+      <ul>
+        <li><b>Source</b>: the NQ test split of BEIR (Thakur et al., 2021), derived from Natural Questions (Kwiatkowski et al., 2019): real Google search queries with relevance judgments over English Wikipedia passages. Downloaded from <a href="https://huggingface.co/datasets/BeIR/nq" rel="noreferrer">huggingface.co/datasets/BeIR/nq</a> on 13 November 2026.</li>
+        <li><b>Licence</b>: BEIR NQ is distributed as CC BY-SA 4.0; Natural Questions is CC BY-SA 3.0 and the passages are Wikipedia text under CC BY-SA. The excerpt in <code>/samples/nq-beir-80.json</code> is shared under the same terms.</li>
+        <li><b>Selection</b>: every 43rd test query starting at index 9, 80 of 3,452. Judgments are BEIR&rsquo;s, unchanged (binary, 1 to 3 relevant passages per query).</li>
+        <li><b>Runs</b>: all three were scored over the full 2,681,468-passage corpus, not the subset. BM25 uses this app&rsquo;s own implementation (k1 1.2, b 0.75), once on passage text only and once with the article title indexed too. The third run reranks the BM25 top 100 with the open <code>cross-encoder/ms-marco-MiniLM-L-6-v2</code> model. The scripts are in <code>scripts/nq-sample</code> in the repository.</li>
+        <li><b>Limits</b>: the corpus in the sample is the pool of passages any run returned in its top 10 plus every judged passage (1,519), so the BM25 and hybrid what-ifs search that pool, not all of Wikipedia. 80 queries is a small sample: the intervals are wide on purpose and the numbers are not comparable to full BEIR leaderboard figures. Passages carry no character offsets, so gold-span scoring and the re-chunking simulator are not available for it. The intent slice is the question word.</li>
+      </ul>
+      <p className="muted small">Assumptions as of November 2026.</p>
     </section>
   )
 }

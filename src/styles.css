@@ -641,3 +641,9 @@ details summary { cursor: pointer; color: var(--accent); font-weight: 500; margi
   .hero h1 { font-size: 2.6rem; }
 }
 .report td.num { white-space: nowrap; }
+.badge.public { background: var(--good-soft); color: var(--good); }
+.panel, .grid-2 > *, .grid-3 > * { min-width: 0; }
+.facts code { overflow-wrap: anywhere; white-space: normal; }
+.report table { width: 100%; }
+.report th, .report td { white-space: normal; overflow-wrap: break-word; }
+.report thead th { vertical-align: bottom; }

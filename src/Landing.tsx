@@ -118,7 +118,7 @@ export function Landing() {
               <Link href="/app?sample=ledgerly" className="btn primary lg">Try the sample</Link>
               <Link href="/app" className="btn outline lg">Import your logs</Link>
             </div>
-            <p className="hero-note">For ML and AI product engineers running a RAG chatbot in production. Sample data is synthetic.</p>
+            <p className="hero-note">For ML and AI product engineers running a RAG chatbot in production. The help-centre sample is synthetic; a public Natural Questions slice is included too.</p>
           </div>
           <LiveRanking />
         </div>
@@ -146,8 +146,8 @@ export function Landing() {
 
       <section className="cta-band">
         <div className="cta-inner">
-          <div><h2>See it on 80 labelled queries.</h2><p>A synthetic help centre with two runs: dense only, and dense + BM25 hybrid over fixed-size chunks that cut answers.</p></div>
-          <Link href="/app?sample=ledgerly" className="btn primary lg">Open the sample</Link>
+          <div><h2>See it on 80 labelled queries.</h2><p>A synthetic help centre with two runs: dense only, and dense + BM25 hybrid over fixed-size chunks that cut answers. Or a public slice of Natural Questions from BEIR: real queries and judgments, BM25 against a cross-encoder rerank.</p></div>
+          <div className="row gap wrap"><Link href="/app?sample=ledgerly" className="btn primary lg">Open the sample</Link><Link href="/app?sample=nq-beir" className="btn ghost lg">Open the public benchmark</Link></div>
         </div>
       </section>
     </>

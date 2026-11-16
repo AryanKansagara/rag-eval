@@ -1,9 +1,10 @@
+import { getDefaults } from './store.ts'
 import { useEffect, useMemo } from 'react'
 import { BUCKETS, bucketCounts, triage } from './engine/analysis.ts'
 import { metricLabel } from './engine/metrics.ts'
 import { MetricsTable, regression, VerdictBox } from './Compare.tsx'
 import { useProject, useWorkspace } from './projectData.ts'
-import { Empty, fmt3, fmtPct, Link, SyntheticBadge } from './ui.tsx'
+import { Empty, fmt3, fmtPct, Link, SampleBadge } from './ui.tsx'
 
 export default function Report({ id }: { id: string }) {
   const { loading, project, ds } = useProject(id)
@@ -28,7 +29,7 @@ export default function Report({ id }: { id: string }) {
       </div>
       <div className="eyebrow">RAG Eval Desk · regression report</div>
       <h1>{r.cand.name} vs {r.base.name}</h1>
-      <p className="muted">{project.name} {project.sampleId && <SyntheticBadge />} · {new Date().toLocaleDateString('en-US', { dateStyle: 'long' })} · {s.level}-level judgments, relevant = grade {s.minGrade}+, triage k = {s.k}</p>
+      <p className="muted">{project.name} {project.sampleId && <SampleBadge id={project.sampleId} />} · {new Date().toLocaleDateString('en-US', { dateStyle: 'long' })} · {s.level}-level judgments, relevant = grade {s.minGrade}+, triage k = {s.k}</p>
 
       <VerdictBox r={r} />
 
@@ -56,7 +57,7 @@ export default function Report({ id }: { id: string }) {
 
       <h2>Thresholds</h2>
       <ul className="small">{s.thresholds.map((t, i) => <li key={i}>{metricLabel(t.metric)}: {t.min !== undefined ? `floor ${t.min}` : 'no floor'}{t.maxDrop !== undefined ? `, max drop ${t.maxDrop} (blocks only if p < ${s.alpha})` : ''}</li>)}</ul>
-      <p className="muted small">Generated in the browser from logged retrieval runs; no LLM judge involved. Metrics: Recall, Precision, Hit and nDCG at k (gain 2^grade − 1), MRR, MAP.</p>
+      <p className="muted small">Generated in the browser from logged retrieval runs; no LLM judge involved. Metrics: Recall, Precision, Hit and nDCG at k (gain {getDefaults().gain === 'linear' ? 'linear' : '2^grade − 1'}), MRR, MAP.</p>
     </article>
   )
 }
