@@ -38,7 +38,7 @@ export function parseJsonRecords(text: string): { recs: Rec[]; issues: Issue[] }
       if (!Array.isArray(j)) {
         // Unwrap {"data": [...]}-style containers; any other object is a single record.
         const key = Object.keys(j).find(k => ['data', 'items', 'records', 'examples', 'runs', 'rows', 'samples', 'queries'].includes(k.toLowerCase()) && Array.isArray(j[k]))
-        j = key ? j[key] : [j]
+        j = key ? j[key] : pivotColumns(j) ?? [j]
       }
       return { recs: (j as unknown[]).map((v, i) => ({ line: i + 1, v: v as Record<string, unknown> })), issues }
     } catch { /* fall through to JSONL */ }
@@ -49,6 +49,16 @@ export function parseJsonRecords(text: string): { recs: Rec[]; issues: Issue[] }
     try { recs.push({ line: i + 1, v: JSON.parse(l) }) } catch { issues.push({ line: i + 1, level: 'error', message: 'Not valid JSON' }) }
   })
   return { recs, issues }
+}
+
+/** Column-oriented JSON, as written by Dataset.to_dict() ({"col": [...]}) or pandas to_json() ({"col": {"0": ...}}). */
+function pivotColumns(j: Record<string, unknown>): Record<string, unknown>[] | null {
+  const cols = Object.entries(j)
+  if (cols.length < 2) return null
+  const cells = cols.map(([, v]) => Array.isArray(v) ? v : v && typeof v === 'object' && Object.keys(v).every(k => /^\d+$/.test(k)) ? Object.values(v) : null)
+  const n = cells[0]?.length
+  if (!n || cells.some(c => !c || c.length !== n)) return null
+  return Array.from({ length: n }, (_, i) => Object.fromEntries(cols.map(([k], c) => [k, cells[c]![i]])))
 }
 
 // ---------- Format detection ----------
@@ -122,12 +132,19 @@ export function autoMap(kind: Kind, headers: string[]): Mapping {
 
 const has = (keys: string[], ...names: string[]) => names.some(n => keys.includes(n))
 
+/** BEIR ships queries.jsonl with the corpus keys (_id, title, text): tell them apart by empty titles and short texts. */
+function looksLikeQueries(recs: Rec[]) {
+  const s = recs.slice(0, 50).map(r => r.v ?? {})
+  const len = s.reduce((a, v) => a + String(v.text ?? '').length, 0) / (s.length || 1)
+  return s.every(v => !v.title) && len < 160
+}
+
 export function detect(fileName: string, recs: Rec[], textHead: string): Format {
-  const lines = textHead.split(/\r?\n/).filter(l => l.trim()).slice(0, 5)
+  const lines = textHead.split(/\r?\n/).filter(l => l.trim() && !l.startsWith('#')).slice(0, 5)
   if (!recs.length && lines.length) {
     const cols = lines[0].trim().split(/\s+/)
     if (cols.length === 6 && cols[1] === 'Q0') return 'trec-run'
-    if (cols.length === 4 && /^-?\d+$/.test(cols[3]) && !/[a-z]{4,}_id/i.test(lines[0])) return 'qrels-trec'
+    if (cols.length === 4 && /^-?\d+(\.\d+)?$/.test(cols[3]) && !/[a-z]{4,}_id/i.test(lines[0])) return 'qrels-trec'
   }
   const first = recs[0]?.v ?? {}
   const keys = Object.keys(first).map(norm)
@@ -138,6 +155,8 @@ export function detect(fileName: string, recs: Rec[], textHead: string): Format 
   if (keys.some(k => ['retrieved', 'results', 'hits', 'documents', 'docs', 'chunks'].includes(k) && Array.isArray(first[Object.keys(first)[keys.indexOf(k)]]))) return 'run-jsonl'
   if (has(keys, 'rank', 'rerank_score', 'retrieved_ids', 'position') || /run|trace|log|retriev/.test(name)) return 'run-csv'
   if (has(keys, 'relevance', 'grade', 'rel', 'judgment', 'corpus-id', 'span_start', 'answer_start', 'answer_text') || /qrel|gold|judg|label/.test(name)) return 'qrels'
+  if (/quer/.test(name) && !/corpus|chunk/.test(name) && has(keys, 'text', 'query', 'question')) return 'queries'
+  if (has(keys, 'text') && has(keys, '_id') && !/corpus|chunk/.test(name) && looksLikeQueries(recs)) return 'queries'
   if (has(keys, 'text', 'content', 'page_content', 'chunk', 'passage') && !has(keys, 'query_id', 'qid', 'query') || /corpus|chunk/.test(name)) return 'corpus'
   if (has(keys, 'query', 'question', 'query_text') || /quer/.test(name)) return 'queries'
   return 'run-csv'
@@ -154,9 +173,10 @@ export function readFile(fileName: string, text: string): Parsed {
     const headers = [...new Set(recs.slice(0, 50).flatMap(r => Object.keys(r.v ?? {})))]
     return { fileName, format: detect(fileName, recs, head), recs, headers, issues, raw: t }
   }
-  const firstLine = head.split(/\r?\n/).find(l => l.trim()) ?? ''
+  const firstLine = head.split(/\r?\n/).find(l => l.trim() && !l.startsWith('#')) ?? ''
   const ws = firstLine.trim().split(/\s+/)
-  if (!/[,\t;]/.test(firstLine) && (ws.length === 6 && ws[1] === 'Q0' || ws.length === 4 && /^-?\d+$/.test(ws[3]))) {
+  // TREC files are whitespace separated: real ones mix tabs and padded spaces, so check them before CSV/TSV.
+  if (!/[,;]/.test(firstLine) && (ws.length === 6 && ws[1] === 'Q0' || ws.length === 4 && /^-?\d+(\.\d+)?$/.test(ws[3]))) {
     return { fileName, format: detect(fileName, [], head), recs: [], headers: [], issues: [], raw: t }
   }
   const csv = parseCsv(t)
@@ -184,8 +204,14 @@ export function hashId(s: string) {
 const normText = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim()
 
 /** Turns a retrieved document object from any common shape into an id, matching the corpus by text when needed. */
-function docRef(d: unknown, byText: Map<string, string>): Retrieved & { matched: boolean } {
-  if (typeof d === 'string') { const id = byText.get(normText(d)); return id ? { id, matched: true } : byText.size ? { id: hashId(normText(d)), matched: false } : { id: d, matched: true } }
+type Ref = Retrieved & { matched: boolean; text?: string }
+function docRef(d: unknown, byText: Map<string, string>): Ref {
+  if (typeof d === 'string') {
+    const id = byText.get(normText(d))
+    if (id) return { id, matched: true }
+    // A bare string with spaces is a passage (Ragas contexts), not an id.
+    return /\s/.test(d.trim()) ? { id: hashId(normText(d)), matched: false, text: d } : { id: d.trim(), matched: true }
+  }
   const o = (d ?? {}) as Record<string, unknown>
   const node = (o.node ?? o) as Record<string, unknown>
   const meta = (node.metadata ?? o.metadata ?? {}) as Record<string, unknown>
@@ -193,10 +219,10 @@ function docRef(d: unknown, byText: Map<string, string>): Retrieved & { matched:
   const text = str(node.page_content ?? node.text ?? node.content)
   const score = num(o.score ?? meta.score ?? o.similarity)
   const rerank = num(o.rerank_score ?? o.relevance_score ?? meta.rerank_score ?? meta.relevance_score)
-  const r: Retrieved & { matched: boolean } = { id, matched: true }
+  const r: Ref = { id, matched: true }
   if (score !== undefined && !Number.isNaN(score)) r.score = score
   if (rerank !== undefined && !Number.isNaN(rerank)) r.rerank = rerank
-  if (!id && text) { const m = byText.get(normText(text)); r.id = m ?? hashId(normText(text)); r.matched = !!m || !byText.size }
+  if (!id && text) { const m = byText.get(normText(text)); r.id = m ?? hashId(normText(text)); r.matched = !!m; if (!m) r.text = text }
   return r
 }
 
@@ -212,7 +238,7 @@ export function validate(p: Parsed, format: Format, map: Mapping, corpus: Chunk[
     const rows = new Map<string, Retrieved[]>()
     const qrels: Qrels = {}
     p.raw.split(/\r?\n/).forEach((l, i) => {
-      if (!l.trim()) return
+      if (!l.trim() || l.startsWith('#')) return
       const c = l.trim().split(/\s+/)
       if (format === 'trec-run') {
         if (c.length < 5) { err(i + 1, `Expected "qid Q0 docid rank score tag", got ${c.length} columns`); skipped++; return }
@@ -234,6 +260,9 @@ export function validate(p: Parsed, format: Format, map: Mapping, corpus: Chunk[
   if (FORMATS[format].kind === 'run' && !FORMATS[format].flat) {
     const rows: RunRow[] = []
     let unmatched = 0
+    // Passages logged as text with no id become chunks, so they can still be read and labelled.
+    const derived = new Map<string, Chunk>()
+    const qrels: Qrels = {}
     for (const r of p.recs) {
       const v = r.v ?? {}
       let qid = '', query = '', docs: unknown[] | undefined, answer = '', cited: string[] | undefined
@@ -256,6 +285,11 @@ export function validate(p: Parsed, format: Format, map: Mapping, corpus: Chunk[
         const ids = pick(v, 'retrieved_context_ids') as unknown[] | undefined
         docs = Array.isArray(ids) ? ids : pick(v, 'retrieved_contexts', 'contexts') as unknown[]
         answer = str(pick(v, 'response', 'answer'))
+        const gold = pick(v, 'reference_context_ids', 'reference_contexts')
+        if (Array.isArray(gold) && gold.length) {
+          const key = qid || (query ? hashId(normText(query)) : '')
+          for (const g of gold.map(x => docRef(x, byText))) if (key && g.id) { (qrels[key] ??= {})[g.id] = 1; if (g.text) derived.set(g.id, { id: g.id, docId: g.id, text: g.text }) }
+        }
       } else {
         qid = str(pick(v, 'query_id', 'qid', 'query-id', 'id'))
         query = str(pick(v, 'query', 'question', 'query_text'))
@@ -271,15 +305,17 @@ export function validate(p: Parsed, format: Format, map: Mapping, corpus: Chunk[
       if (!Array.isArray(docs)) { err(r.line, 'No retrieved list found (expected retrieved, documents, source_nodes or contexts)'); skipped++; continue }
       const retrieved = docs.map(d => docRef(d, byText))
       unmatched += retrieved.filter(x => !x.matched).length
+      for (const x of retrieved) if (x.text && x.id) derived.set(x.id, { id: x.id, docId: x.id, text: x.text })
       if (retrieved.some(x => !x.id)) warn(r.line, 'Some retrieved items had no id or text and were dropped')
-      const clean = retrieved.filter(x => x.id).map(({ matched: _m, ...x }) => x)
+      const clean = retrieved.filter(x => x.id).map(({ matched: _m, text: _t, ...x }) => x)
       if (!clean.length) warn(r.line, 'Empty retrieved list')
       if (cited === undefined) { const c = pick(v, 'cited', 'cited_ids', 'citations'); if (c !== undefined) cited = list(c) }
       rows.push({ queryId: qid, ...(query ? { query } : {}), retrieved: clean, ...(answer ? { answer } : {}), ...(cited ? { cited } : {}) })
       ok++
     }
-    if (unmatched) warn(0, `${unmatched} retrieved texts did not match any chunk in the corpus, so they get hashed ids and count as not relevant. Import the corpus first, or log chunk ids.`)
-    return { fragment: { run: { rows: dedupeRows(rows, issues) } }, issues, ok, skipped, summary: `${rows.length} queries` }
+    if (unmatched) warn(0, `${unmatched} retrieved passages were logged as text without ids${byText.size ? ' and did not match any chunk in the corpus' : ''}. ${derived.size} distinct passages were added as chunks with hashed ids so you can read and label them. To score against existing qrels, import the chunks file first or log chunk ids.`)
+    const nGold = Object.keys(qrels).length
+    return { fragment: { run: { rows: dedupeRows(rows, issues) }, ...(derived.size ? { corpus: [...derived.values()] } : {}), ...(nGold ? { qrels } : {}) }, issues, ok, skipped, summary: `${rows.length} queries${derived.size ? `, ${derived.size} passages` : ''}${nGold ? `, ${nGold} with reference contexts` : ''}` }
   }
 
   const kind = FORMATS[format].kind

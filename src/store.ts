@@ -152,10 +152,10 @@ export const clearTombstones = (ids: string[]) => localStorage.setItem(TOMB, JSO
 
 // ---------- App defaults (settings page) ----------
 
-export interface Defaults { level: Level; k: number; minGrade: number; alpha: number; minTokens: number; iters: number }
+export interface Defaults { level: Level; k: number; minGrade: number; alpha: number; minTokens: number; iters: number; gain: 'exp' | 'linear' }
 const DEF_KEY = 'rag-eval.defaults'
 export function getDefaults(): Defaults {
-  const base: Defaults = { level: 'chunk', k: 5, minGrade: 1, alpha: 0.05, minTokens: 25, iters: 1000 }
+  const base: Defaults = { level: 'chunk', k: 5, minGrade: 1, alpha: 0.05, minTokens: 25, iters: 1000, gain: 'exp' }
   try { return { ...base, ...JSON.parse(localStorage.getItem(DEF_KEY) ?? '{}') } } catch { return base }
 }
 export const setDefaults = (d: Defaults) => localStorage.setItem(DEF_KEY, JSON.stringify(d))

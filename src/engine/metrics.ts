@@ -90,15 +90,15 @@ export const METRIC_LABEL: Record<string, string> = {
 }
 export const metricLabel = (m: string) => METRIC_LABEL[m] ?? m.replace(/^(\w)/, c => c.toUpperCase())
 
-const gain = (g: number) => 2 ** g - 1
-export function dcg(grades: number[], k: number) {
+/** Gain is 2^grade - 1 by default; linear gain (the grade itself) is what trec_eval and pytrec_eval use. */
+export function dcg(grades: number[], k: number, linear = false) {
   let s = 0
-  for (let i = 0; i < Math.min(k, grades.length); i++) s += gain(grades[i]) / Math.log2(i + 2)
+  for (let i = 0; i < Math.min(k, grades.length); i++) s += (linear ? grades[i] : 2 ** grades[i] - 1) / Math.log2(i + 2)
   return s
 }
 
 /** One metric for one judged list. Returns NaN when the query has nothing relevant (excluded from means). */
-export function metric(name: string, j: Pick<Judged, 'grades' | 'ideal'>, minGrade = 1): number {
+export function metric(name: string, j: Pick<Judged, 'grades' | 'ideal'>, minGrade = 1, linearGain = false): number {
   const nRel = j.ideal.filter(g => g >= minGrade).length
   if (!nRel) return NaN
   const [base, kRaw] = name.split('@')
@@ -111,8 +111,8 @@ export function metric(name: string, j: Pick<Judged, 'grades' | 'ideal'>, minGra
     case 'hit': return hits > 0 ? 1 : 0
     case 'mrr': { const i = j.grades.slice(0, k).findIndex(g => g >= minGrade); return i < 0 ? 0 : 1 / (i + 1) }
     case 'ndcg': {
-      const ideal = dcg([...j.ideal].sort((a, b) => b - a), k)
-      return ideal ? dcg(j.grades, k) / ideal : 0
+      const ideal = dcg([...j.ideal].sort((a, b) => b - a), k, linearGain)
+      return ideal ? dcg(j.grades, k, linearGain) / ideal : 0
     }
     case 'map': {
       let n = 0, s = 0
@@ -209,10 +209,10 @@ export interface RunEval {
   agg: Record<string, Estimate>
 }
 
-export function evaluateRows(ctx: Ctx, rows: RunRow[], metrics: readonly string[] = METRICS, minGrade = 1, iters = 1000): RunEval {
+export function evaluateRows(ctx: Ctx, rows: RunRow[], metrics: readonly string[] = METRICS, minGrade = 1, iters = 1000, linearGain = false): RunEval {
   const perQuery = rows.map(r => {
     const judged = judge(ctx, r.queryId, r.retrieved)
-    return { queryId: r.queryId, judged, scores: Object.fromEntries(metrics.map(m => [m, metric(m, judged, minGrade)])) }
+    return { queryId: r.queryId, judged, scores: Object.fromEntries(metrics.map(m => [m, metric(m, judged, minGrade, linearGain)])) }
   })
   const unlabelled = perQuery.filter(q => !q.judged.labelled).map(q => q.queryId)
   const noGold = perQuery.filter(q => q.judged.labelled && !q.judged.ideal.some(g => g >= minGrade)).map(q => q.queryId)

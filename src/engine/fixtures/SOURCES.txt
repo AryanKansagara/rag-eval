@@ -1,0 +1,11 @@
+trec_eval.qrels.test, trec_eval.results.test
+  The test pair shipped with trec_eval (https://github.com/usnistgov/trec_eval, test/qrels.test and
+  test/results.test), unmodified. NIST software, not subject to copyright in the United States.
+  Expected values in the tests come from test/out.test and test/out.test.aq in the same repository.
+
+ragas.amnesty_qa.jsonl
+  First two rows of the english_v3 eval split of explodinggradients/amnesty_qa
+  (https://huggingface.co/datasets/explodinggradients/amnesty_qa), Apache-2.0, written one JSON object per line.
+
+../../../public/samples/nq-beir-80.json
+  See /docs#samples in the app: BEIR NQ test split, CC BY-SA.
