@@ -281,7 +281,7 @@ export function Footer() {
       <div className="footer-inner">
         <div className="footer-brand"><Monogram /> <strong>RAG Eval Desk</strong></div>
         <nav className="footer-nav" aria-label="Footer"><Link href="/app">Projects</Link><Link href="/docs">Docs</Link><Link href="/settings">Settings</Link></nav>
-        <p>Built by Aryan Kansagara. Independent project, not affiliated with Cohere.</p>
+        <p>Built by Aryan Kansagara.</p>
         <p className="muted small">The Ledgerly sample is synthetic. The Natural Questions sample is public data from BEIR (CC BY-SA), credited in the <Link href="/docs#samples">docs</Link>. Your logs are processed in your browser and stored on this device unless you sign in to sync.</p>
       </div>
     </footer>
