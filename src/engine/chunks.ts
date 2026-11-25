@@ -1,24 +1,35 @@
 import type { Chunk, GoldSpan } from './types.ts'
 import { nearDuplicates, tokenCount, wordSpans, type DupPair } from './text.ts'
 
-export interface Doc { id: string; text: string; title?: string; chunkIds: string[]; hasOffsets: boolean }
+export interface Doc { id: string; text: string; title?: string; chunkIds: string[]; hasOffsets: boolean; /** The chunk whose offsets leave a gap too big to fill, when there is one. */ tooFar?: string }
 
-/** Rebuild each document's text from its chunks using their offsets (overlaps are merged). */
+/** Characters of blank filler rebuildDocs writes for text no chunk covers, over all documents. */
+export const MAX_FILLER = 20_000_000
+
+/** Rebuild each document's text from its chunks using their offsets (overlaps are merged).
+ * A document with a gap too big to fill is not rebuilt and counts as having no offsets. */
 export function rebuildDocs(corpus: Chunk[]): Doc[] {
   const by = new Map<string, Chunk[]>()
   for (const c of corpus) { const k = c.docId || ''; const l = by.get(k); if (l) l.push(c); else by.set(k, [c]) }
   const docs: Doc[] = []
+  let filler = 0
   for (const [id, list] of by) {
     if (!id) continue
-    const hasOffsets = list.every(c => c.start !== undefined && c.end !== undefined)
-    let text = ''
+    let hasOffsets = list.every(c => c.start !== undefined && c.end !== undefined)
+    let text = '', tooFar: string | undefined
     if (hasOffsets) {
+      let gaps = 0
       for (const c of [...list].sort((a, b) => a.start! - b.start!)) {
+        const gap = Math.max(0, c.start! - text.length)
+        if (filler + gaps + gap > MAX_FILLER) { tooFar = c.id; hasOffsets = false; break }
+        gaps += gap
         if (c.start! >= text.length) text += ' '.repeat(c.start! - text.length) + c.text
         else if (c.start! + c.text.length > text.length) text += c.text.slice(text.length - c.start!)
       }
-    } else text = list.map(c => c.text).join('\n\n')
-    docs.push({ id, text, title: list.find(c => c.title)?.title, chunkIds: list.map(c => c.id), hasOffsets })
+      if (hasOffsets) filler += gaps
+    }
+    if (!hasOffsets) text = list.map(c => c.text).join('\n\n')
+    docs.push({ id, text, title: list.find(c => c.title)?.title, chunkIds: list.map(c => c.id), hasOffsets, ...(tooFar ? { tooFar } : {}) })
   }
   return docs
 }
@@ -202,7 +213,8 @@ export function defaultGrid(): Strategy[] {
   return g
 }
 
+/** `best` is missing when no configuration could be checked against a gold span. */
 export function recommend(docs: Doc[], spans: GoldSpan[], grid = defaultGrid()) {
   const results = grid.map(s => simulate(docs, spans, s)).sort((a, b) => a.score - b.score)
-  return { best: results[0], results }
+  return { best: results.find(r => Number.isFinite(r.cutRate)), results }
 }

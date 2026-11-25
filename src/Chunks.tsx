@@ -39,6 +39,7 @@ export default function Chunks({ ds, w, project }: TabProps) {
   const has = ds.corpus.length > 0
   const d = has ? w.diag() : null
   const docs = useMemo(() => has ? rebuildDocs(ds.corpus) : [], [ds.corpus, has])
+  const tooFar = docs.filter(x => x.tooFar).length
   const rec = useMemo(() => ds.spans.length && docs.some(x => x.hasOffsets) ? recommend(docs.filter(x => x.hasOffsets), ds.spans) : null, [docs, ds.spans])
   const mine = useMemo<SimResult | null>(() => rec ? simulate(docs.filter(x => x.hasOffsets), ds.spans, custom) : null, [rec, docs, ds.spans, custom])
 
@@ -96,7 +97,8 @@ export default function Chunks({ ds, w, project }: TabProps) {
 
       <div className="panel tint">
         <div className="panel-head"><h2>Re-chunking simulator</h2><span className="muted small">No embeddings needed: chunk the rebuilt documents and check every gold span</span></div>
-        {!rec || !mine ? <p className="muted">Needs chunk offsets and gold spans. Without offsets the original documents cannot be rebuilt.</p> : (
+        {tooFar > 0 && <p className="warn-text small">{tooFar} {tooFar === 1 ? 'document is' : 'documents are'} left out: the chunk offsets leave gaps too large to rebuild the text.</p>}
+        {!rec || !mine ? <p className="muted">Needs chunk offsets and gold spans. Without offsets the original documents cannot be rebuilt.</p> : !best ? <p className="muted">No gold span matches a document, so no configuration could be checked. Check that the doc ids and offsets of the gold spans match the corpus.</p> : (
           <>
             <div className="sim-controls">
               <div className="seg-control" role="radiogroup" aria-label="Strategy">

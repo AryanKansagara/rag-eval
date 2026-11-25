@@ -349,7 +349,7 @@ export function validate(p: Parsed, format: Format, map: Mapping, corpus: Chunk[
 
   if (kind === 'corpus') {
     const corpusOut: Chunk[] = []
-    const seen = new Set<string>()
+    const seen = new Map<string, number>()
     for (const r of p.recs) {
       const id = str(field(r, 'id')), text = typeof field(r, 'text') === 'string' ? field(r, 'text') as string : str(field(r, 'text'))
       if (!id) { err(r.line, 'Missing chunk id'); skipped++; continue }
@@ -362,8 +362,9 @@ export function validate(p: Parsed, format: Format, map: Mapping, corpus: Chunk[
         else { c.start = start; c.end = end; if (Math.abs(end! - start! - text.length) > 2) warn(r.line, `Offsets of ${id} span ${end! - start!} chars but text has ${text.length}`) }
       }
       const title = str(field(r, 'title')); if (title) c.title = title
-      seen.add(id); corpusOut.push(c); ok++
+      seen.set(id, r.line); corpusOut.push(c); ok++
     }
+    for (const d of rebuildDocs(corpusOut)) if (d.tooFar) warn(seen.get(d.tooFar)!, `The offsets of ${d.tooFar} leave too much of document ${d.id} uncovered to rebuild it, so it is left out of the re-chunking simulator`)
     const docs = new Set(corpusOut.map(c => c.docId)).size
     return { fragment: { corpus: corpusOut }, issues, ok, skipped, summary: `${corpusOut.length} chunks in ${docs} docs` }
   }
