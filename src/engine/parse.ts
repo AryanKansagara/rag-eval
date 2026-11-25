@@ -3,24 +3,26 @@ import type { Chunk, Dataset, GoldSpan, Qrels, Query, Retrieved, Run, RunRow } f
 
 // ---------- Low-level readers ----------
 
-export function parseCsv(text: string): { rows: string[][]; lines: number[] } {
+/** `unclosed` is the line of a quote that never closes. Its row runs to the end of the file, so it is left out. */
+export function parseCsv(text: string): { rows: string[][]; lines: number[]; unclosed?: number } {
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1)
   const nl = text.indexOf('\n')
   const head = text.slice(0, nl < 0 ? text.length : nl)
   const delim = [',', '\t', ';'].map(d => [d, head.split(d).length] as const).sort((a, b) => b[1] - a[1])[0][0]
   const rows: string[][] = [], lines: number[] = []
-  let row: string[] = [], field = '', quoted = false, line = 1, rowLine = 1
+  let row: string[] = [], field = '', quoted = false, line = 1, rowLine = 1, quoteLine = 1
   const endRow = () => { row.push(field); field = ''; if (row.length > 1 || row[0] !== '') { rows.push(row); lines.push(rowLine) }; row = [] }
   for (let i = 0; i < text.length; i++) {
     const c = text[i]
     if (quoted) {
       if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++ } else quoted = false }
       else { if (c === '\n') line++; field += c }
-    } else if (c === '"' && field === '') quoted = true
+    } else if (c === '"' && field === '') { quoted = true; quoteLine = line }
     else if (c === delim) { row.push(field); field = '' }
     else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; endRow(); line++; rowLine = line }
     else field += c
   }
+  if (quoted) return { rows, lines, unclosed: quoteLine }
   if (field !== '' || row.length) endRow()
   return { rows, lines }
 }
@@ -189,7 +191,10 @@ export function readFile(fileName: string, text: string): Parsed {
   const csv = parseCsv(t)
   const headers = csv.rows[0] ?? []
   const recs = csv.rows.slice(1).map((r, i) => ({ line: csv.lines[i + 1], v: Object.fromEntries(headers.map((h, j) => [h, r[j] ?? ''])) }))
-  return { fileName, format: detect(fileName, recs, head), recs, headers, issues: [], raw: t }
+  const issues: Issue[] = csv.unclosed ? [{ line: csv.unclosed, level: 'error', message: 'A quote opened on this line is never closed, so this row and everything after it was not read' }] : []
+  // When the open quote took the only row, the header still says what the file is.
+  const sample = csv.unclosed && !recs.length && headers.length ? [{ line: 1, v: Object.fromEntries(headers.map(h => [h, ''])) }] : recs
+  return { fileName, format: detect(fileName, sample, head), recs, headers, issues, raw: t }
 }
 
 // ---------- Validation into dataset fragments ----------
