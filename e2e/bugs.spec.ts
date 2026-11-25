@@ -201,7 +201,7 @@ test('#8 numeric chunk ids are kept', async ({ page }) => {
   await expect(kpi(page, 'MRR')).toHaveText('0.500')
 })
 
-test.fail('#9 a quote that never closes is reported', async ({ page }) => {
+test('#9 a quote that never closes is reported', async ({ page }) => {
   await newProject(page)
   const panel = await offer(page, { name: 'corpus.csv', text: 'chunk_id,doc_id,text\na,d,"hello\nb,d,world\nc,d,x\n' })
   await expect(panel.locator('.issues')).toContainText('line 2')

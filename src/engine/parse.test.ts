@@ -69,3 +69,28 @@ test('with a | only | separates ids and tags, and tags are never split on spaces
   assert.deepEqual(ids(load('run.jsonl', '{"query_id":"q1","retrieved_ids":"doc 1|doc 2"}', 'run-jsonl')), ['doc 1', 'doc 2'])
   assert.deepEqual(ids(load('run.jsonl', '{"query_id":"q1","retrieved_ids":["a",2]}', 'run-jsonl')), ['a', '2'])
 })
+
+test('a CSV quote that never closes is an error on its opening line and its row is left out', () => {
+  const load = (text: string) => { const p = readFile('corpus.csv', text); return validate(p, 'corpus', autoMap('corpus', p.headers)) }
+  for (const [text, line, ids] of [
+    ['chunk_id,doc_id,text\na,d,"hello\nb,d,world\nc,d,x\n', 2, []],
+    ['chunk_id,doc_id,text\na,d,ok\nb,d,"two\nlines"\nc,d,"cut off', 5, ['a', 'b']],
+    ['chunk_id,doc_id,text\r\na,d,ok\r\nb,d,"say ""hi""\r\nc,d,x\r\n', 3, ['a']],
+    ['chunk_id,doc_id,text\na,d,ok\nb,d,"', 3, ['a']],
+    // The quote opens on the second line of a row that starts on line 2.
+    ['chunk_id,text,title\na,"x\ny","t\nb,z,t\n', 3, []],
+  ] as const) {
+    const v = load(text)
+    assert.deepEqual(v.fragment.corpus?.map(c => c.id) ?? [], [...ids], text)
+    assert.deepEqual([v.skipped, v.issues.map(i => [i.line, i.level])], [1, [[line, 'error']]], text)
+    assert.match(v.issues[0].message, /never closed/)
+  }
+  const header = load('"chunk_id,doc_id,text\na,d,x\n')
+  assert.deepEqual([header.ok, header.issues[0].line], [0, 1])
+  // With no other row to look at, the header still decides the format.
+  assert.equal(readFile('q.tsv', 'query-id\tcorpus-id\tscore\nq1\t"d\t1\n').format, readFile('q.tsv', 'query-id\tcorpus-id\tscore\nq1\td\t1\n').format)
+  // Quoted fields that close are unchanged.
+  const good = load('chunk_id,doc_id,text\na,d,"two\nlines, ""quoted"""\nb,d,5" pipe\nc,d,"end"')
+  assert.deepEqual(good.fragment.corpus!.map(c => c.text), ['two\nlines, "quoted"', '5" pipe', 'end'])
+  assert.deepEqual([good.ok, good.skipped, good.issues], [3, 0, []])
+})
