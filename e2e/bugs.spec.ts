@@ -95,7 +95,7 @@ test.fail('#5 relevance false is not relevant', async ({ page }) => {
   await expect(kpi(page, 'MRR')).toHaveText('0.500')
 })
 
-test.fail('#6 the CI gate fails when the candidate metrics are missing', async ({ page }) => {
+test('#6 the CI gate fails when the candidate metrics are missing', async ({ page }) => {
   await newProject(page)
   await importFiles(page, QRELS, BASE, PERFECT)
   await openTab(page, 'Regression')
