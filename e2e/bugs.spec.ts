@@ -207,7 +207,7 @@ test.fail('#9 a quote that never closes is reported', async ({ page }) => {
   await expect(panel.locator('.issues')).toContainText('line 2')
 })
 
-test.fail('#10 ids with spaces stay whole when separated by |', async ({ page }) => {
+test('#10 ids with spaces stay whole when separated by |', async ({ page }) => {
   await newProject(page)
   await importFiles(page, { name: 'run.csv', text: 'query_id,retrieved_ids\nq1,doc 1|doc 2\n' })
   expect((await onlyData(page)).runs[0].rows[0].retrieved.map(x => x.id)).toEqual(['doc 1', 'doc 2'])
