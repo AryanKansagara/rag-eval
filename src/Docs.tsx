@@ -137,7 +137,7 @@ export default function Docs() {
       </ul>
 
       <h2 id="ci">CI gate</h2>
-      <p>The Regression tab downloads <code>rag-thresholds.json</code>, a dependency-free <code>rag-gate.mjs</code>, and metrics files for both runs. In CI, produce the candidate metrics file with your own eval script (same JSON shape) and run <code>node rag-gate.mjs rag-thresholds.json baseline.json candidate.json</code>; it exits 1 when a floor is breached or a drop past the allowed delta is significant.</p>
+      <p>The Regression tab downloads <code>rag-thresholds.json</code>, a dependency-free <code>rag-gate.mjs</code>, and metrics files for both runs. In CI, produce the candidate metrics file with your own eval script (same JSON shape) and run <code>node rag-gate.mjs rag-thresholds.json baseline.json candidate.json</code>; it exits 1 when a floor is breached or a drop past the allowed delta is significant, and also when a metric or per-query score it needs is missing.</p>
 
       <h2 id="privacy">Data, accounts and sync</h2>
       <p>Projects live in your browser (IndexedDB). Accounts are optional: signing in syncs project settings, labels, thresholds and snapshots, plus the raw dataset when it is under 1.5 MB per project. Larger corpora and logs stay on the device where they were imported. Export everything as JSON or delete your cloud data and account from the account menu.</p>

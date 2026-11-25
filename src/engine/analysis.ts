@@ -127,9 +127,15 @@ export const DEFAULT_THRESHOLDS: Threshold[] = [
 ]
 
 export interface Check { metric: string; base: number; value: number; delta: number; p: number; pass: boolean; reason: string }
-export interface Verdict { ship: boolean; checks: Check[]; shared: number }
+export interface Verdict {
+  ship: boolean
+  checks: Check[]
+  shared: number
+  /** Why the comparison itself cannot support a ship, whatever the metrics say. */
+  blockers: string[]
+}
 
-/** Ship unless a metric falls under its floor, or drops by more than allowed with p < alpha. */
+/** Ship when the runs can be compared in full and no metric falls under its floor, or drops by more than allowed with p < alpha. */
 export function verdict(base: RunEval, cand: RunEval, thresholds: Threshold[], opts: { alpha?: number; requireSignificance?: boolean } = {}): Verdict {
   const alpha = opts.alpha ?? 0.05
   const metrics = [...new Set(thresholds.map(t => t.metric))]
@@ -141,14 +147,21 @@ export function verdict(base: RunEval, cand: RunEval, thresholds: Threshold[], o
     const reasons: string[] = []
     let pass = true
     if (t.min !== undefined && !(v >= t.min)) { pass = false; reasons.push(`${metricLabel(t.metric)} ${v.toFixed(3)} is under the floor ${t.min}`) }
-    if (t.maxDrop !== undefined && delta < -t.maxDrop) {
+    if (t.maxDrop !== undefined && !Number.isFinite(delta)) { pass = false; reasons.push('could not be compared') }
+    else if (t.maxDrop !== undefined && delta < -t.maxDrop) {
       const sig = p < alpha
       if (sig || opts.requireSignificance === false) { pass = false; reasons.push(`dropped ${(-delta).toFixed(3)} (allowed ${t.maxDrop}${sig ? `, p=${p.toFixed(3)}` : ''})`) }
       else reasons.push(`dropped ${(-delta).toFixed(3)} but not significant (p=${p.toFixed(2)})`)
     }
     return { metric: t.metric, base: b, value: v, delta, p, pass, reason: reasons.join('; ') || 'within thresholds' }
   })
-  return { ship: checks.every(c => c.pass), checks, shared: cmp.shared.length }
+  const blockers: string[] = []
+  const missing = base.scored.length - cmp.shared.length
+  if (base === cand) blockers.push('The baseline and the candidate are the same run')
+  if (!thresholds.some(t => t.min !== undefined || t.maxDrop !== undefined)) blockers.push('No thresholds are set, so nothing was checked')
+  if (!cmp.shared.length) blockers.push('The runs share no judged queries, so there is nothing to compare. Check that both logs use the same query ids')
+  else if (missing) blockers.push(`The candidate has no scored result for ${missing} of the baseline's ${base.scored.length} judged queries`)
+  return { ship: !blockers.length && checks.every(c => c.pass), checks, shared: cmp.shared.length, blockers }
 }
 
 // ---------- Exports ----------
@@ -184,37 +197,70 @@ export function gateConfig(thresholds: Threshold[], alpha = 0.05) {
   return { alpha, thresholds: thresholds.map(t => ({ metric: t.metric, ...(t.min !== undefined ? { min: t.min } : {}), ...(t.maxDrop !== undefined ? { maxDrop: t.maxDrop } : {}) })) }
 }
 
-/** Dependency-free Node script for CI. Exits 1 when the candidate fails the gate. */
+/** Dependency-free Node script for CI. Exits 1 when the candidate fails the gate, or when the gate cannot be checked. */
 export const CI_SCRIPT = `// rag-gate.mjs: node rag-gate.mjs thresholds.json baseline.json candidate.json
 import { readFileSync } from 'node:fs'
 const [cfgPath, basePath, candPath] = process.argv.slice(2)
 const read = p => JSON.parse(readFileSync(p, 'utf8'))
 const cfg = read(cfgPath), base = read(basePath), cand = read(candPath)
-const alpha = cfg.alpha ?? 0.05
-// Sign-flip randomisation test on shared per-query scores (seeded so CI is repeatable).
-function pValue(m) {
-  const a = base.perQuery?.[m] ?? {}, b = cand.perQuery?.[m] ?? {}
-  const d = Object.keys(a).filter(q => q in b && a[q] !== null && b[q] !== null).map(q => b[q] - a[q])
-  if (!d.length) return 1
-  const obs = Math.abs(d.reduce((s, x) => s + x, 0) / d.length)
-  if (obs === 0) return 1
-  let seed = 12345, hit = 0
-  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648
-  for (let i = 0; i < 5000; i++) { let s = 0; for (const x of d) s += rnd() < 0.5 ? x : -x; if (Math.abs(s / d.length) >= obs - 1e-12) hit++ }
-  return (hit + 1) / 5001
-}
-let failed = 0
-for (const t of cfg.thresholds) {
-  const v = cand.metrics[t.metric], b = base.metrics[t.metric]
-  const problems = []
-  if (t.min !== undefined && !(v >= t.min)) problems.push(\`below floor \${t.min}\`)
-  if (t.maxDrop !== undefined && b !== undefined && v < b - t.maxDrop) {
-    const p = pValue(t.metric)
-    if (p < alpha) problems.push(\`dropped \${(b - v).toFixed(4)} (p=\${p.toFixed(4)})\`)
+const alpha = cfg.alpha ?? 0.05, thresholds = Array.isArray(cfg.thresholds) ? cfg.thresholds : []
+const num = x => typeof x === 'number' && Number.isFinite(x)
+const scored = (f, m) => new Map(Object.entries(f.perQuery?.[m] ?? {}).filter(e => num(e[1])))
+// Seeded, so CI is repeatable.
+function rng(a) {
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = a
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
-  console.log(\`\${problems.length ? 'FAIL' : 'ok  '} \${t.metric.padEnd(12)} \${String(b).padEnd(8)} -> \${v}\${problems.length ? '  ' + problems.join(', ') : ''}\`)
+}
+// The app's two paired tests on per-query differences: bootstrap shifted to the null, and sign flips.
+function pValue(d, obs, seed, iters = 2000) {
+  if (d.every(x => Math.abs(x) < 1e-12)) return 1
+  const r = rng(seed), n = d.length
+  let boot = 0, flip = 0
+  for (let i = 0; i < iters; i++) {
+    let s = 0, f = 0
+    for (let j = 0; j < n; j++) s += d[Math.floor(r() * n)]
+    if (Math.abs(s / n - obs) >= Math.abs(obs) - 1e-12) boot++
+    for (let j = 0; j < n; j++) f += r() < 0.5 ? d[j] : -d[j]
+    if (Math.abs(f / n) >= Math.abs(obs) - 1e-12) flip++
+  }
+  return (Math.min(boot, flip) + 1) / (iters + 1)
+}
+const metrics = [...new Set(thresholds.map(t => t.metric))]
+let failed = 0, checked = 0
+for (const t of thresholds) {
+  const v = cand.metrics?.[t.metric], b = base.metrics?.[t.metric]
+  const problems = []
+  const hasMin = t.min !== undefined, hasDrop = t.maxDrop !== undefined
+  if (!hasMin && !hasDrop && Object.keys(t).length === 1) { console.log(\`skip \${t.metric}  no floor or max drop\`); continue }
+  checked++
+  if (hasMin && !num(t.min)) problems.push('min is not a number')
+  if (hasDrop && !num(t.maxDrop)) problems.push('maxDrop is not a number')
+  if (!hasMin && !hasDrop) problems.push('expected min or maxDrop, got ' + Object.keys(t).filter(k => k !== 'metric').join(', '))
+  if (!num(v)) problems.push('the candidate file has no number for this metric')
+  else if (hasMin && !(v >= t.min)) problems.push(\`below floor \${t.min}\`)
+  const bq = scored(base, t.metric), cq = scored(cand, t.metric)
+  const missing = [...bq.keys()].filter(q => !cq.has(q)).length
+  const d = [...bq].filter(([q]) => cq.has(q)).map(([q, x]) => cq.get(q) - x)
+  if (missing) problems.push(\`the candidate has no score for \${missing} of the baseline's \${bq.size} queries\`)
+  if (hasDrop) {
+    if (!d.length) problems.push('no per-query scores in common, so the drop cannot be tested')
+    else {
+      const delta = d.reduce((s, x) => s + x, 0) / d.length
+      if (delta < -t.maxDrop) {
+        const p = pValue(d, delta, 11 + metrics.indexOf(t.metric))
+        if (p < alpha) problems.push(\`dropped \${(-delta).toFixed(4)} (p=\${p.toFixed(4)})\`)
+      }
+    }
+  }
+  console.log(\`\${problems.length ? 'FAIL' : 'ok  '} \${String(t.metric).padEnd(12)} \${String(b).padEnd(8)} -> \${v}\${problems.length ? '  ' + problems.join(', ') : ''}\`)
   if (problems.length) failed++
 }
+if (!checked) { console.log('FAIL no thresholds to check'); failed++ }
 console.log(failed ? \`\\nNo ship: \${failed} check(s) failed\` : '\\nShip: all checks passed')
 process.exit(failed ? 1 : 0)
 `

@@ -28,15 +28,14 @@ export default function Label({ project, ds, w, update }: TabProps) {
   const done = queue.filter(id => project.labels[id] || imported[id]).length
 
   const setGrade = (id: string, g: number) => {
-    const next = { ...project.labels, [qid]: { ...(project.labels[qid] ?? {}), [id]: g } }
-    void update({ labels: next })
+    update(now => ({ labels: { ...now.labels, [qid]: { ...now.labels[qid], [id]: g } } }))
     if (fi < cands.length - 1) setFi(fi + 1)
   }
   const noGold = () => {
-    const prev = project.labels
+    const prev = project.labels[qid]
     const zeros = Object.fromEntries(cands.map(c => [c.id, 0]))
-    void update({ labels: { ...prev, [qid]: { ...(prev[qid] ?? {}), ...zeros } } })
-    toast('Marked as no relevant chunk: it now counts as "too vague"', { undo: () => void update({ labels: prev }) })
+    update(now => ({ labels: { ...now.labels, [qid]: { ...now.labels[qid], ...zeros } } }))
+    toast('Marked as no relevant chunk: it now counts as "too vague"', { undo: () => update(now => { const { [qid]: _, ...rest } = now.labels; return { labels: prev ? { ...rest, [qid]: prev } : rest } }) })
     nextQ(1)
   }
   const nextQ = (d: number) => { setQi(i => Math.max(0, Math.min(queue.length - 1, i + d))); setFi(0) }

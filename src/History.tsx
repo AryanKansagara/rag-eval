@@ -15,10 +15,10 @@ export default function History({ project, w, update }: TabProps) {
   if (!snaps.length) return <Empty title="No snapshots yet"><p className="muted">Press <kbd>S</kbd> or the Snapshot button to freeze the run under study: every metric with its CI, the failure buckets and the per-query scores. Take one per pipeline version or per month.</p></Empty>
 
   const del = (id: string) => {
-    const before = project.snapshots
-    void update({ snapshots: before.filter(s => s.id !== id) })
+    const gone = project.snapshots.filter(s => s.id === id)
+    update(now => ({ snapshots: now.snapshots.filter(s => s.id !== id) }))
     void deleteSnapshotCloud(id)
-    toast('Snapshot deleted', { undo: () => void update({ snapshots: before }) })
+    toast('Snapshot deleted', { undo: () => update(now => ({ snapshots: [...now.snapshots.filter(s => s.id !== id), ...gone] })) })
   }
 
   const changed = a && b ? Object.keys(b.perQuery).filter(q => q in a.perQuery).map(q => ({ q, d: b.perQuery[q] - a.perQuery[q] })).filter(x => Math.abs(x.d) >= 0.1).sort((x, y) => x.d - y.d) : []

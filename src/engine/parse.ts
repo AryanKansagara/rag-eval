@@ -32,6 +32,11 @@ export interface Issue { line: number; level: 'error' | 'warning'; message: stri
 export function parseJsonRecords(text: string): { recs: Rec[]; issues: Issue[] } {
   const t = text.trim()
   const issues: Issue[] = []
+  const recs: Rec[] = []
+  const add = (line: number, v: unknown) => {
+    if (v && typeof v === 'object' && !Array.isArray(v)) recs.push({ line, v: v as Record<string, unknown> })
+    else issues.push({ line, level: 'error', message: `Expected a JSON object, got ${v === null ? 'null' : Array.isArray(v) ? 'a list' : `a ${typeof v}`}` })
+  }
   if (t.startsWith('[') || (t.startsWith('{') && !t.includes('\n{'))) {
     try {
       let j = JSON.parse(t)
@@ -40,13 +45,15 @@ export function parseJsonRecords(text: string): { recs: Rec[]; issues: Issue[] }
         const key = Object.keys(j).find(k => ['data', 'items', 'records', 'examples', 'runs', 'rows', 'samples', 'queries'].includes(k.toLowerCase()) && Array.isArray(j[k]))
         j = key ? j[key] : pivotColumns(j) ?? [j]
       }
-      return { recs: (j as unknown[]).map((v, i) => ({ line: i + 1, v: v as Record<string, unknown> })), issues }
+      ;(j as unknown[]).forEach((v, i) => add(i + 1, v))
+      return { recs, issues }
     } catch { /* fall through to JSONL */ }
   }
-  const recs: Rec[] = []
   text.split(/\r?\n/).forEach((l, i) => {
     if (!l.trim()) return
-    try { recs.push({ line: i + 1, v: JSON.parse(l) }) } catch { issues.push({ line: i + 1, level: 'error', message: 'Not valid JSON' }) }
+    let v: unknown
+    try { v = JSON.parse(l) } catch { issues.push({ line: i + 1, level: 'error', message: 'Not valid JSON' }); return }
+    add(i + 1, v)
   })
   return { recs, issues }
 }
@@ -171,7 +178,7 @@ export function readFile(fileName: string, text: string): Parsed {
   if (looksJson) {
     const { recs, issues } = parseJsonRecords(t)
     const headers = [...new Set(recs.slice(0, 50).flatMap(r => Object.keys(r.v ?? {})))]
-    return { fileName, format: detect(fileName, recs, head), recs, headers, issues, raw: t }
+    return { fileName, format: detect(fileName, recs, ''), recs, headers, issues, raw: t }
   }
   const firstLine = head.split(/\r?\n/).find(l => l.trim() && !l.startsWith('#')) ?? ''
   const ws = firstLine.trim().split(/\s+/)
@@ -232,7 +239,8 @@ export function validate(p: Parsed, format: Format, map: Mapping, corpus: Chunk[
   const warn = (line: number, message: string) => issues.push({ line, level: 'warning', message })
   const byText = new Map(corpus.map(c => [normText(c.text), c.id]))
   const field = (r: Rec, key: string) => map[key] ? r.v[map[key]] : undefined
-  let ok = 0, skipped = 0
+  // Lines the reader could not use are rows the import leaves out.
+  let ok = 0, skipped = p.issues.filter(i => i.level === 'error').length
 
   if (format === 'trec-run' || format === 'qrels-trec') {
     const rows = new Map<string, Retrieved[]>()
@@ -321,7 +329,7 @@ export function validate(p: Parsed, format: Format, map: Mapping, corpus: Chunk[
   const kind = FORMATS[format].kind
   for (const f of FIELDS[kind]) if (f.required && !map[f.key]) err(0, `Map a column to "${f.label}"`)
   if (kind === 'run' && !map.chunkId && !map.retrievedIds) err(0, 'Map either "Retrieved chunk id" or "Retrieved ids"')
-  if (issues.some(i => i.line === 0 && i.level === 'error')) return { fragment: {}, issues, ok: 0, skipped: p.recs.length, summary: 'Mapping incomplete' }
+  if (issues.some(i => i.line === 0 && i.level === 'error')) return { fragment: {}, issues, ok: 0, skipped: skipped + p.recs.length, summary: 'Mapping incomplete' }
 
   if (kind === 'corpus') {
     const corpusOut: Chunk[] = []
@@ -366,16 +374,21 @@ export function validate(p: Parsed, format: Format, map: Mapping, corpus: Chunk[
       const qid = str(field(r, 'queryId'))
       if (!qid) { err(r.line, 'Missing query id'); skipped++; continue }
       const id = str(field(r, 'id'))
-      const gRaw = num(field(r, 'grade'))
+      const gv = field(r, 'grade')
+      const gRaw = typeof gv === 'boolean' ? Number(gv) : num(gv)
       if (Number.isNaN(gRaw)) { err(r.line, `Relevance "${str(field(r, 'grade'))}" is not a number`); skipped++; continue }
       const g = gRaw === undefined ? 1 : gRaw
       if (g < 0 || g > 3) warn(r.line, `Grade ${g} is outside 0-3`)
-      let used = false
-      if (id) { (qrels[qid] ??= {})[id] = g; used = true }
       const doc = str(field(r, 'docId')) || (map.start || map.answer ? id : '')
       const start = num(field(r, 'start')), end = num(field(r, 'end'))
       const ans = str(field(r, 'answer'))
-      if (doc && start !== undefined && end !== undefined) {
+      const hasSpan = !!doc && (start !== undefined && end !== undefined || !!ans && !!map.answer)
+      // The default grade is for files without a grade column; a blank cell in one means nobody judged the row.
+      if (map.grade && gRaw === undefined && id && !hasSpan) { err(r.line, `Relevance of ${id} is blank`); skipped++; continue }
+      let used = false
+      if (id) { (qrels[qid] ??= {})[id] = g; used = true }
+      if (g <= 0) { /* A span graded not relevant is a judgment, but not a gold answer. */ }
+      else if (doc && start !== undefined && end !== undefined) {
         if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) err(r.line, 'Span end must be after start')
         else { spans.push({ queryId: qid, docId: doc, start, end }); used = true }
       } else if (doc && ans && map.answer) {
@@ -456,6 +469,12 @@ export function mergeFragment(ds: Dataset, f: Fragment, runMeta?: { id: string; 
     if (extra.length) next.queries = [...next.queries, ...extra]
   }
   return next
+}
+
+/** Brings back a dataset as it was before an edit, keeping anything added since. */
+export function restoreDataset(before: Dataset, now: Dataset): Dataset {
+  const added = now.runs.filter(r => !before.runs.some(b => b.id === r.id))
+  return { ...mergeFragment(before, { corpus: now.corpus, queries: now.queries, qrels: now.qrels, spans: now.spans }), runs: [...before.runs, ...added] }
 }
 
 // ---------- Writers (round-trip the sample, export data) ----------

@@ -47,6 +47,9 @@ npm install
 npm run dev      # http://localhost:5173
 npm test         # engine tests
 npm run build
+npm run test:e2e # browser tests on the production build (once: npx playwright install chromium)
 ```
+
+The end-to-end suite (`e2e/`, Playwright with Chromium) serves the production build on port 4387; set `E2E_PORT` to use another. Requests to outside hosts are blocked and an uncaught page error fails a test. Tests marked `test.fail` pin a known bug and name its issue. GitHub Actions (`.github/workflows/ci.yml`, job `test`) runs install, build, unit tests and the suite on every pull request and on pushes to `main`. Vercel builds only `main`.
 
 Optional sync: copy `.env.example` to `.env` (public Supabase URL and publishable key).
