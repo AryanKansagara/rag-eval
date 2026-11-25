@@ -336,3 +336,24 @@ test('the CI gate script passes a better candidate and fails a regression (exit 
 test('toCsv quotes commas, quotes and newlines and blanks non-finite numbers', () => {
   assert.equal(toCsv([['a,b', 'say "hi"', NaN, 'x\ny']]), '"a,b","say ""hi""",,"x\ny"\n')
 })
+
+test('verdict never ships without a full comparison', () => {
+  const ctx = makeCtx({ corpus: [], qrels: { q1: { a: 1 }, q2: { a: 1 }, q3: { a: 1 } }, spans: [] }, 'chunk')
+  const run = (...qs: string[]) => evaluateRows(ctx, qs.map(q => ({ queryId: q, retrieved: R('a') })))
+  const drop = [{ metric: 'ndcg@10', maxDrop: 0.02 }]
+  const full = verdict(run('q1', 'q2'), run('q1', 'q2', 'q3'), drop)
+  assert.equal(full.ship, true)
+  assert.deepEqual(full.blockers, [])
+  const none = verdict(run('q1'), run('q2'), drop)
+  assert.equal(none.ship, false)
+  assert.match(none.blockers.join(), /share no judged queries/)
+  assert.equal(none.checks[0].pass, false)
+  const cut = verdict(run('q1', 'q2', 'q3'), run('q1'), drop)
+  assert.equal(cut.ship, false)
+  assert.match(cut.blockers.join(), /2 of the baseline's 3 judged/)
+  assert.equal(verdict(run('q1'), run('q1'), []).ship, false)
+  assert.equal(verdict(run('q1'), run('q1'), [{ metric: 'mrr' }]).ship, false)
+  assert.equal(verdict(run(), run(), drop).ship, false)
+  const same = run('q1')
+  assert.match(verdict(same, same, drop).blockers.join(), /same run/)
+})
