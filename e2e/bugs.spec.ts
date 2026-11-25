@@ -73,7 +73,7 @@ test.fail('#4 a candidate log cut off after the first query does not ship', asyn
   await expect(page.locator('.verdict-head b')).toHaveText('No ship')
 })
 
-test.fail('#5 a blank relevance is reported and not counted as relevant', async ({ page }) => {
+test('#5 a blank relevance is reported and not counted as relevant', async ({ page }) => {
   await newProject(page)
   const panel = await offer(page, { name: 'qrels.csv', text: 'query_id,chunk_id,relevance\nq1,c9,\nq1,c1,1\n' })
   await expect(panel.locator('.issues')).toContainText('line 2')
@@ -83,7 +83,7 @@ test.fail('#5 a blank relevance is reported and not counted as relevant', async 
   await expect(kpi(page, 'MRR')).toHaveText('0.500')
 })
 
-test.fail('#5 relevance false is not relevant', async ({ page }) => {
+test('#5 relevance false is not relevant', async ({ page }) => {
   await newProject(page)
   await importFiles(page, { name: 'qrels.jsonl', text: jsonl({ query_id: 'q1', chunk_id: 'c9', label: false }, { query_id: 'q1', chunk_id: 'c1', label: true }) }, { name: 'run.jsonl', text: jsonl(row('q1', ['c9', 'c1'])) })
   await openTab(page, 'Overview')
