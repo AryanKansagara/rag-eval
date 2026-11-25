@@ -56,3 +56,16 @@ test('finite numbers in retrieved lists and Ragas id lists are ids; null and boo
   // A number JSON cannot hold exactly is kept, with a warning that it may not match.
   assert.match(load('{"query_id":"q1","retrieved":[12345678901234567891]}').issues[0].message, /too large/)
 })
+
+test('with a | only | separates ids and tags, and tags are never split on spaces', () => {
+  const load = (name: string, text: string, format?: Parameters<typeof validate>[1]) => { const p = readFile(name, text), f = format ?? p.format; return validate(p, f, autoMap(FORMATS[f].kind, p.headers)).fragment }
+  const ids = (f: ReturnType<typeof load>) => f.run!.rows[0].retrieved.map(x => x.id)
+  const tags = load('queries.csv', 'query_id,query,tags\nq1,x,getting started|billing\nq2,x,getting started\nq3,x,a b; c\nq4,x,\n')
+  assert.deepEqual(tags.queries!.map(q => q.tags), [['getting started', 'billing'], ['getting started'], ['a b', 'c'], undefined])
+  const wide = load('run.csv', 'query_id,retrieved_ids,cited\nq1,doc 1 | doc 2|,doc 1|doc 2\n')
+  assert.deepEqual([ids(wide), wide.run!.rows[0].cited], [['doc 1', 'doc 2'], ['doc 1', 'doc 2']])
+  // Without a | the old separators still work.
+  assert.deepEqual(ids(load('run.csv', 'query_id,retrieved_ids\nq1,a b;c  d\n')), ['a', 'b', 'c', 'd'])
+  assert.deepEqual(ids(load('run.jsonl', '{"query_id":"q1","retrieved_ids":"doc 1|doc 2"}', 'run-jsonl')), ['doc 1', 'doc 2'])
+  assert.deepEqual(ids(load('run.jsonl', '{"query_id":"q1","retrieved_ids":["a",2]}', 'run-jsonl')), ['a', '2'])
+})

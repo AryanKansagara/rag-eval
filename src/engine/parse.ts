@@ -199,7 +199,9 @@ export interface Validated { fragment: Fragment; issues: Issue[]; ok: number; sk
 
 const str = (x: unknown) => x === undefined || x === null ? '' : typeof x === 'string' ? x.trim() : typeof x === 'number' ? String(x) : ''
 const num = (x: unknown) => { const s = str(x); if (!s) return undefined; const n = Number(s); return Number.isFinite(n) ? n : NaN }
-const list = (x: unknown) => Array.isArray(x) ? x.map(str).filter(Boolean) : str(x).split(/[|;\s]+/).filter(Boolean)
+/** A list in one cell. With a | in it, only | separates, so items may hold spaces; without one, ids may be separated by ; or spaces. */
+const list = (x: unknown, without = /[;\s]+/) => Array.isArray(x) ? x.map(str).filter(Boolean) : str(x).split(str(x).includes('|') ? '|' : without).map(s => s.trim()).filter(Boolean)
+const tagList = (x: unknown) => list(x, /[;\r\n]+/)
 const get = (o: unknown, ...path: string[]): unknown => path.reduce<unknown>((a, k) => a && typeof a === 'object' ? (a as Record<string, unknown>)[k] : undefined, o)
 const pick = (o: Record<string, unknown>, ...names: string[]) => { for (const n of names) { const k = Object.keys(o).find(x => norm(x) === n); if (k && o[k] !== undefined && o[k] !== null && o[k] !== '') return o[k] } return undefined }
 
@@ -311,7 +313,7 @@ export function validate(p: Parsed, format: Format, map: Mapping, corpus: Chunk[
         query = str(pick(v, 'query', 'question', 'query_text'))
         docs = pick(v, 'retrieved', 'results', 'hits', 'documents', 'docs', 'chunks') as unknown[]
         const ids = pick(v, 'retrieved_ids')
-        if (!docs && ids) docs = list(ids)
+        if (!docs && ids) docs = Array.isArray(ids) ? ids : list(ids).map(id => ({ id }))
         answer = str(pick(v, 'answer', 'response'))
         const c = pick(v, 'cited', 'cited_ids', 'citations', 'cited_chunk_ids')
         if (c !== undefined) cited = list(c)
@@ -366,7 +368,7 @@ export function validate(p: Parsed, format: Format, map: Mapping, corpus: Chunk[
     for (const r of p.recs) {
       const id = str(field(r, 'id')), text = str(field(r, 'text'))
       if (!id || !text) { err(r.line, !id ? 'Missing query id' : 'Missing query text'); skipped++; continue }
-      const tags = map.tags ? list(field(r, 'tags')) : []
+      const tags = map.tags ? tagList(field(r, 'tags')) : []
       const q: Query = { id, text }
       if (tags.length) q.tags = tags
       const intent = str(field(r, 'intent')); if (intent) q.intent = intent
