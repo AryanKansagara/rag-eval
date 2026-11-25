@@ -139,7 +139,23 @@ export async function deleteProject(id: string): Promise<() => Promise<void>> {
 }
 
 export const getData = (id: string) => idbGet<Dataset>('data', id)
-export const putData = (id: string, ds: Dataset) => idbPut('data', ds, id)
+export async function putData(id: string, ds: Dataset) {
+  await idbPut('data', ds, id)
+  dataVersions.set(id, (dataVersions.get(id) ?? 0) + 1)
+  subs.forEach(f => f())
+}
+
+/** Counts the writes to a project's dataset, so an open page knows when to read it again. */
+const dataVersions = new Map<string, number>()
+export const useDataVersion = (id: string) => useSyncExternalStore(f => { subs.add(f); return () => subs.delete(f) }, () => dataVersions.get(id) ?? 0)
+
+/** Dataset edits run one after another, each on what is stored, so overlapping edits never drop each other. */
+let dataQueue: Promise<unknown> = Promise.resolve()
+export function inDataQueue<T>(job: () => Promise<T>): Promise<T> {
+  const run = dataQueue.then(job)
+  dataQueue = run.catch(() => undefined)
+  return run
+}
 
 export const uuid = () => crypto.randomUUID()
 

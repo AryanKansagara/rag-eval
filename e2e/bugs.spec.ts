@@ -8,7 +8,7 @@ import { BASE, CORPUS, downloadText, expect, importFiles, jsonl, kpi, newProject
 
 const onlyData = async (page: Parameters<typeof stored>[0]) => Object.values((await stored(page)).data)[0]
 
-test.fail('#2 a deleted run leaves the list at once and the next import does not bring it back', async ({ page }) => {
+test('#2 a deleted run leaves the list at once and the next import does not bring it back', async ({ page }) => {
   await newProject(page)
   await importFiles(page, QRELS, BASE, PERFECT)
   const names = page.getByRole('textbox', { name: 'Run name' })
@@ -20,7 +20,7 @@ test.fail('#2 a deleted run leaves the list at once and the next import does not
   await expect(names).toHaveCount(2)
 })
 
-test.fail('#2 two files imported at the same moment are both kept', async ({ page }) => {
+test('#2 two files imported at the same moment are both kept', async ({ page }) => {
   await newProject(page)
   await offer(page, BASE)
   await offer(page, PERFECT)
@@ -28,6 +28,48 @@ test.fail('#2 two files imported at the same moment are both kept', async ({ pag
   await expect(page.locator('.pending')).toHaveCount(0)
   expect((await onlyData(page)).runs.map(r => r.name)).toEqual(['base', 'perfect'])
   expect((await stored(page)).projects[0].imports.map(i => i.fileName)).toEqual(['base.jsonl', 'perfect.jsonl'])
+})
+
+test('#2 clear and rename show at once, and Undo keeps what was imported since', async ({ page }) => {
+  await newProject(page)
+  await importFiles(page, QRELS, BASE)
+  const name = page.getByRole('textbox', { name: 'Run name' })
+  await name.fill('renamed')
+  await name.blur()
+  await expect(page.getByRole('button', { name: 'renamed.jsonl' })).toBeVisible()
+  await page.getByRole('button', { name: 'Clear all data' }).click()
+  await page.getByRole('button', { name: 'Clear data' }).click()
+  await expect(page.getByText('No runs yet.')).toBeVisible()
+  await importFiles(page, PERFECT)
+  expect((await onlyData(page)).runs.map(r => r.name)).toEqual(['perfect'])
+  await page.getByText('Data cleared').locator('..').getByRole('button', { name: 'Undo' }).click()
+  await expect(name).toHaveCount(2)
+  await page.reload()
+  const d = await onlyData(page)
+  expect(d.runs.map(r => r.name)).toEqual(['renamed', 'perfect'])
+  expect(Object.keys(d.qrels)).toHaveLength(5)
+})
+
+test('#2 double-clicking Import on a sample makes one project', async ({ page }) => {
+  await page.goto('/app?sample=ledgerly')
+  await openTab(page, 'Data')
+  const panel = await offer(page, BASE)
+  await panel.getByRole('button', { name: 'Import', exact: true }).dblclick()
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('My RAG eval')
+  await page.waitForTimeout(300)
+  const s = await stored(page)
+  expect(s.projects).toHaveLength(2)
+  expect(Object.values(s.data).map(d => d.runs.length)).toEqual([1])
+})
+
+test('#2 two files imported at the same moment from a sample land in one new project', async ({ page }) => {
+  await page.goto('/app?sample=ledgerly')
+  await openTab(page, 'Data')
+  await offer(page, BASE)
+  await offer(page, PERFECT)
+  await page.evaluate(() => document.querySelectorAll<HTMLButtonElement>('.pending .btn.primary').forEach(b => b.click()))
+  await expect(page.locator('.pending')).toHaveCount(0)
+  expect(Object.values((await stored(page)).data).map(d => d.runs.map(r => r.name))).toEqual([['base', 'perfect']])
 })
 
 test.fail('#3 grades entered in quick succession are all kept', async ({ page }) => {
