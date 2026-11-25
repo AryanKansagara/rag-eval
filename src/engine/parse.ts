@@ -208,6 +208,8 @@ export function hashId(s: string) {
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) }
   return 'h' + (h >>> 0).toString(36)
 }
+/** JSON numbers past 2^53 are rounded when read, so such an id may not be the one in the file. */
+const rounded = (x: unknown) => typeof x === 'number' && Number.isInteger(x) && !Number.isSafeInteger(x)
 const normText = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim()
 
 /** Turns a retrieved document object from any common shape into an id, matching the corpus by text when needed. */
@@ -219,6 +221,7 @@ function docRef(d: unknown, byText: Map<string, string>): Ref {
     // A bare string with spaces is a passage (Ragas contexts), not an id.
     return /\s/.test(d.trim()) ? { id: hashId(normText(d)), matched: false, text: d } : { id: d.trim(), matched: true }
   }
+  if (typeof d === 'number' && Number.isFinite(d)) return { id: String(d), matched: true }
   const o = (d ?? {}) as Record<string, unknown>
   const node = (o.node ?? o) as Record<string, unknown>
   const meta = (node.metadata ?? o.metadata ?? {}) as Record<string, unknown>
@@ -232,6 +235,8 @@ function docRef(d: unknown, byText: Map<string, string>): Ref {
   if (!id && text) { const m = byText.get(normText(text)); r.id = m ?? hashId(normText(text)); r.matched = !!m; if (!m) r.text = text }
   return r
 }
+
+const ROUNDED = 'Some numeric ids are too large for JSON numbers and were rounded; write them as strings'
 
 export function validate(p: Parsed, format: Format, map: Mapping, corpus: Chunk[] = []): Validated {
   const issues: Issue[] = [...p.issues]
@@ -296,7 +301,10 @@ export function validate(p: Parsed, format: Format, map: Mapping, corpus: Chunk[
         const gold = pick(v, 'reference_context_ids', 'reference_contexts')
         if (Array.isArray(gold) && gold.length) {
           const key = qid || (query ? hashId(normText(query)) : '')
-          for (const g of gold.map(x => docRef(x, byText))) if (key && g.id) { (qrels[key] ??= {})[g.id] = 1; if (g.text) derived.set(g.id, { id: g.id, docId: g.id, text: g.text }) }
+          const refs = gold.map(x => docRef(x, byText))
+          if (refs.some(x => !x.id)) warn(r.line, 'Some reference contexts had no id or text and were dropped')
+          if (gold.some(rounded)) warn(r.line, ROUNDED)
+          for (const g of refs) if (key && g.id) { (qrels[key] ??= {})[g.id] = 1; if (g.text) derived.set(g.id, { id: g.id, docId: g.id, text: g.text }) }
         }
       } else {
         qid = str(pick(v, 'query_id', 'qid', 'query-id', 'id'))
@@ -312,6 +320,7 @@ export function validate(p: Parsed, format: Format, map: Mapping, corpus: Chunk[
       if (!qid) { err(r.line, 'No query id or query text'); skipped++; continue }
       if (!Array.isArray(docs)) { err(r.line, 'No retrieved list found (expected retrieved, documents, source_nodes or contexts)'); skipped++; continue }
       const retrieved = docs.map(d => docRef(d, byText))
+      if (docs.some(rounded)) warn(r.line, ROUNDED)
       unmatched += retrieved.filter(x => !x.matched).length
       for (const x of retrieved) if (x.text && x.id) derived.set(x.id, { id: x.id, docId: x.id, text: x.text })
       if (retrieved.some(x => !x.id)) warn(r.line, 'Some retrieved items had no id or text and were dropped')
