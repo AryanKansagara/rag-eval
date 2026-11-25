@@ -105,18 +105,22 @@ test.fail('#6 the CI gate fails when the candidate metrics are missing', async (
   } finally { rmSync(dir, { recursive: true }) }
 })
 
-test.fail('#7 a cut-off JSON line counts as skipped', async ({ page }) => {
+test('#7 a cut-off JSON line counts as skipped', async ({ page }) => {
   await newProject(page)
   const panel = await offer(page, { name: 'corpus.jsonl', text: '{"chunk_id":"a","text":"x"}\n{"chunk_id":"b","te' })
   await expect(panel.locator('.issues')).toContainText('line 2Not valid JSON')
   await expect(panel).toContainText('1 skipped')
   await expect(panel.getByRole('button', { name: 'Import 1 good rows' })).toBeVisible()
+  await panel.getByRole('button', { name: 'Import 1 good rows' }).click()
+  await expect(page.getByText('Imported corpus.jsonl: 1 chunks in 1 docs, skipped 1 rows')).toBeVisible()
+  await expect(page.locator('.panel', { has: page.getByRole('heading', { name: 'Import history' }) })).toContainText('1 skipped')
 })
 
-test.fail('#7 a null row is reported and does not blank the page', async ({ page }) => {
+test('#7 a null row is reported and does not blank the page', async ({ page }) => {
   await newProject(page)
   const panel = await offer(page, { name: 'corpus.jsonl', text: '{"chunk_id":"a","text":"x"}\nnull\n' })
   await expect(panel.locator('.issues')).toContainText('line 2')
+  await expect(panel.locator('.issues')).toContainText('Expected a JSON object, got null')
 })
 
 test.fail('#8 numeric chunk ids are kept', async ({ page }) => {
