@@ -458,6 +458,12 @@ export function mergeFragment(ds: Dataset, f: Fragment, runMeta?: { id: string; 
   return next
 }
 
+/** Brings back a dataset as it was before an edit, keeping anything added since. */
+export function restoreDataset(before: Dataset, now: Dataset): Dataset {
+  const added = now.runs.filter(r => !before.runs.some(b => b.id === r.id))
+  return { ...mergeFragment(before, { corpus: now.corpus, queries: now.queries, qrels: now.qrels, spans: now.spans }), runs: [...before.runs, ...added] }
+}
+
 // ---------- Writers (round-trip the sample, export data) ----------
 
 export const runToJsonl = (run: Run) => run.rows.map(r => JSON.stringify({ query_id: r.queryId, query: r.query, retrieved: r.retrieved.map(x => ({ id: x.id, score: x.score, ...(x.rerank !== undefined ? { rerank_score: x.rerank } : {}) })), answer: r.answer, cited: r.cited })).join('\n') + '\n'
