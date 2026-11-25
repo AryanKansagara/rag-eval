@@ -82,7 +82,7 @@ export async function downloadText(page: Page, click: () => Promise<void>): Prom
 
 // ---------- Reading what the app stored (read-only) ----------
 
-export interface StoredProject { id: string; name: string; labels: Record<string, Record<string, number>>; snapshots: { label: string }[]; settings: { k: number; thresholds: { metric: string; min?: number; maxDrop?: number }[] }; imports: { fileName: string; skipped: number }[]; sampleId?: string }
+export interface StoredProject { id: string; name: string; labels: Record<string, Record<string, number>>; snapshots: { label: string }[]; settings: { k: number; alpha: number; thresholds: { metric: string; min?: number; maxDrop?: number }[] }; imports: { fileName: string; skipped: number }[]; sampleId?: string }
 export interface StoredData { runs: { name: string; rows: { queryId: string; retrieved: { id: string }[] }[] }[]; corpus: { id: string }[]; queries: unknown[]; spans: unknown[]; qrels: Record<string, Record<string, number>> }
 
 export async function stored(page: Page): Promise<{ projects: StoredProject[]; data: Record<string, StoredData> }> {

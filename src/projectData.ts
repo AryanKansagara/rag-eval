@@ -6,7 +6,7 @@ import { buildPublicSample, PUBLIC_SAMPLE_META, type PublicSampleFile } from './
 import { buildSample, SAMPLE_META } from './engine/sample.ts'
 import { bm25, type Bm25 } from './engine/text.ts'
 import { emptyDataset, type Dataset, type Query, type Qrels, type Run } from './engine/types.ts'
-import { blankSettings, getData, getDefaults, getProjects, saveProject, useProjects, uuid, type Project, type Settings } from './store.ts'
+import { blankSettings, getData, getDefaults, getProject, getProjects, saveProject, useDataVersion, useProjects, uuid, type Project, type Settings } from './store.ts'
 
 export const SAMPLES: { id: string; name: string; blurb: string; kind?: 'public' }[] = [SAMPLE_META, PUBLIC_SAMPLE_META]
 export const isPublicSample = (id?: string) => id === PUBLIC_SAMPLE_META.id
@@ -51,7 +51,7 @@ export function useProject(id: string) {
   const project = list?.find(p => p.id === id) ?? null
   const [ds, setDs] = useState<Dataset | null>(null)
   const [loadError, setLoadError] = useState(false)
-  const importsKey = project ? project.imports.map(i => i.id).join(',') : ''
+  const dataVersion = useDataVersion(id)
   useEffect(() => {
     if (!project) return
     let live = true
@@ -59,9 +59,13 @@ export function useProject(id: string) {
     if (project.sampleId) { void sampleDataset(project.sampleId).then(d => { if (live) setDs(d) }, () => { if (live) setLoadError(true) }); return () => { live = false } }
     void getData(project.id).then(d => { if (live) setDs(d ?? emptyDataset()) })
     return () => { live = false }
-  }, [project?.id, project?.sampleId, importsKey])
-  const update = (patch: Partial<Project>) => project && saveProject({ ...project, ...patch })
-  const setSettings = (patch: Partial<Settings>) => project && saveProject({ ...project, settings: { ...project.settings, ...patch } })
+  }, [project?.id, project?.sampleId, dataVersion])
+  // Patches apply to the project as it is now, not as it was when the caller rendered (an Undo can run seconds later).
+  const update = (patch: Partial<Project> | ((now: Project) => Partial<Project>)) => {
+    const now = getProject(id)
+    if (now) void saveProject({ ...now, ...(typeof patch === 'function' ? patch(now) : patch) })
+  }
+  const setSettings = (patch: Partial<Settings>) => update(now => ({ settings: { ...now.settings, ...patch } }))
   return { loading: list === null || (project !== null && ds === null && !loadError), loadError, project, ds, update, setSettings }
 }
 

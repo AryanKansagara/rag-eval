@@ -31,10 +31,10 @@ export function MetricsTable({ r }: { r: ReturnType<typeof regression> }) {
               <th scope="row">{metricLabel(m)}</th>
               <td className="num">{fmt3(r.a.agg[m].mean)}</td>
               <td className="num">{fmt3(r.b.agg[m].mean)}</td>
-              <td className={`num ${sig ? t.delta > 0 ? 'good-text' : 'error' : ''}`}><b>{t.delta >= 0 ? '+' : '−'}{Math.abs(t.delta).toFixed(3)}</b></td>
+              <td className={`num ${sig ? t.delta > 0 ? 'good-text' : 'error' : ''}`}><b>{Number.isFinite(t.delta) ? (t.delta >= 0 ? '+' : '−') + Math.abs(t.delta).toFixed(3) : '—'}</b></td>
               <td className="num muted">{fmt3(t.lo)} to {fmt3(t.hi)}</td>
-              <td className="num">{pFmt(t.pBootstrap)}</td>
-              <td className="num">{pFmt(t.pRandom)}</td>
+              <td className="num">{t.n ? pFmt(t.pBootstrap) : '—'}</td>
+              <td className="num">{t.n ? pFmt(t.pRandom) : '—'}</td>
               <td className="num muted">{t.wins} / {t.losses} / {t.ties}</td>
             </tr>
           )
@@ -48,7 +48,7 @@ export function VerdictBox({ r }: { r: ReturnType<typeof regression> }) {
   return (
     <div className={`verdict ${r.v.ship ? 'ship' : 'block'}`}>
       <div className="verdict-head"><span className="verdict-mark" aria-hidden="true">{r.v.ship ? '✓' : '×'}</span><div><b>{r.v.ship ? 'Ship' : 'No ship'}</b><small>{r.cand.name} vs {r.base.name} · {r.v.shared} shared queries</small></div></div>
-      <ul>{r.v.checks.map((c, i) => <li key={i} className={c.pass ? '' : 'fail'}><b>{metricLabel(c.metric)}</b> {fmt3(c.base)} → {fmt3(c.value)}: {c.reason}</li>)}</ul>
+      <ul>{r.v.blockers.map(b => <li key={b} className="fail"><b>{b}.</b></li>)}{r.v.checks.map((c, i) => <li key={i} className={c.pass ? '' : 'fail'}><b>{metricLabel(c.metric)}</b> {fmt3(c.base)} → {fmt3(c.value)}: {c.reason}</li>)}</ul>
     </div>
   )
 }
@@ -96,9 +96,9 @@ export default function Compare({ project, ds, w, setSettings }: TabProps) {
           <div className="row gap-sm wrap" style={{ marginTop: 10 }}>
             <button type="button" className="btn ghost sm" onClick={() => setSettings({ thresholds: [...th, { metric: 'recall@10', maxDrop: 0.02 }] })}>Add threshold</button>
             <button type="button" className="btn ghost sm" onClick={() => setSettings({ thresholds: DEFAULT_THRESHOLDS.map(t => ({ ...t })) })}>Reset</button>
-            <label className="row gap-sm small">alpha <input type="number" step="0.01" min="0.001" max="0.5" value={project.settings.alpha} onChange={e => setSettings({ alpha: Number(e.target.value) || 0.05 })} style={{ width: 80 }} /></label>
+            <label className="row gap-sm small">alpha <input type="number" step="0.01" min="0.001" max="0.5" defaultValue={project.settings.alpha} onChange={e => { const a = Number(e.target.value); if (a > 0 && a < 1) setSettings({ alpha: a }) }} onBlur={e => { e.target.value = String(project.settings.alpha) }} style={{ width: 80 }} /></label>
           </div>
-          <p className="muted small">A drop past "max drop" only blocks when it is significant at alpha; a floor always blocks.</p>
+          <p className="muted small">A drop past "max drop" only blocks when it is significant at alpha; a floor always blocks. A candidate that is missing queries the baseline was scored on does not ship.</p>
         </div>
         <div className="panel">
           <h2>Biggest per-query changes</h2>
