@@ -213,7 +213,7 @@ test.fail('#10 ids with spaces stay whole when separated by |', async ({ page })
   expect((await onlyData(page)).runs[0].rows[0].retrieved.map(x => x.id)).toEqual(['doc 1', 'doc 2'])
 })
 
-test.fail('#11 a negative TREC judgment earns no gain', async ({ page }) => {
+test('#11 a negative TREC judgment earns no gain', async ({ page }) => {
   await newProject(page)
   await importFiles(page, { name: 'qrels.txt', text: 'q1 0 a -2\nq1 0 b 1\n' }, { name: 'run.jsonl', text: jsonl(row('q1', ['a', 'b'])) })
   await openTab(page, 'Overview')

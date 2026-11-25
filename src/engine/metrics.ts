@@ -90,10 +90,14 @@ export const METRIC_LABEL: Record<string, string> = {
 }
 export const metricLabel = (m: string) => METRIC_LABEL[m] ?? m.replace(/^(\w)/, c => c.toUpperCase())
 
-/** Gain is 2^grade - 1 by default; linear gain (the grade itself) is what trec_eval and pytrec_eval use. */
+/** Gain is 2^grade - 1 by default; linear gain (the grade itself) is what trec_eval and pytrec_eval use.
+ * A grade below 0 (TREC junk is -2) has no gain, like 0. */
 export function dcg(grades: number[], k: number, linear = false) {
   let s = 0
-  for (let i = 0; i < Math.min(k, grades.length); i++) s += (linear ? grades[i] : 2 ** grades[i] - 1) / Math.log2(i + 2)
+  for (let i = 0; i < Math.min(k, grades.length); i++) {
+    const g = Math.max(0, grades[i])
+    s += (linear ? g : 2 ** g - 1) / Math.log2(i + 2)
+  }
   return s
 }
 
