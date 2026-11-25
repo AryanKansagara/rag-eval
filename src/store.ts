@@ -111,12 +111,13 @@ export const getProject = (id: string) => projects.find(p => p.id === id)
 
 export async function saveProject(p: Project, opts: { touch?: boolean; silent?: boolean } = {}) {
   const next = opts.touch === false ? p : { ...p, updatedAt: Date.now() }
-  await idbPut('projects', next)
+  // Memory first: the page shows the edit at once, and the next edit builds on it even while this one is being stored.
   const i = projects.findIndex(x => x.id === p.id)
   if (i >= 0) projects[i] = next
   else projects.unshift(next)
   projects.sort((a, b) => b.updatedAt - a.updatedAt)
   emit()
+  await idbPut('projects', next)
   if (!opts.silent) changeHooks.forEach(f => f(next))
   return next
 }

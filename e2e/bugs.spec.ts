@@ -72,7 +72,7 @@ test('#2 two files imported at the same moment from a sample land in one new pro
   expect(Object.values((await stored(page)).data).map(d => d.runs.map(r => r.name))).toEqual([['base', 'perfect']])
 })
 
-test.fail('#3 grades entered in quick succession are all kept', async ({ page }) => {
+test('#3 grades entered in quick succession are all kept', async ({ page }) => {
   await newProject(page)
   await importFiles(page, CORPUS, { name: 'run.jsonl', text: jsonl(row('q1', ['c1', 'c2', 'c3', 'c4'])) })
   await openTab(page, 'Label')
@@ -84,7 +84,7 @@ test.fail('#3 grades entered in quick succession are all kept', async ({ page })
   expect((await stored(page)).projects[0].labels).toEqual({ q1: { c1: 3, c2: 2, c3: 1, c4: 0 } })
 })
 
-test.fail('#3 a threshold is stored as typed', async ({ page }) => {
+test('#3 a threshold is stored as typed', async ({ page }) => {
   await newProject(page)
   await importFiles(page, QRELS, BASE, PERFECT)
   await openTab(page, 'Regression')
@@ -95,6 +95,30 @@ test.fail('#3 a threshold is stored as typed', async ({ page }) => {
   await page.evaluate(() => { for (const c of '0.75') document.execCommand('insertText', false, c) })
   await expect(floor).toHaveValue('0.75')
   await expect.poll(async () => (await stored(page)).projects[0].settings.thresholds[0].min).toBe(0.75)
+  // alpha too, which used to jump back to 0.05 after the first 0.
+  const alpha = page.getByLabel('alpha')
+  await alpha.click()
+  await alpha.press('ControlOrMeta+a')
+  await alpha.pressSequentially('0.01')
+  await expect.poll(async () => (await stored(page)).projects[0].settings.alpha).toBe(0.01)
+  await alpha.fill('')
+  await alpha.blur()
+  await expect(alpha).toHaveValue('0.01')
+})
+
+test('#3 Undo of one change keeps the changes made after it', async ({ page }) => {
+  await newProject(page)
+  await importFiles(page, CORPUS, { name: 'run.jsonl', text: jsonl(row('q1', ['c1']), row('q2', ['c2'])) })
+  await openTab(page, 'Label')
+  await page.getByRole('button', { name: 'No relevant chunk' }).click()
+  await page.getByRole('radiogroup', { name: 'Relevance of c2' }).getByRole('radio', { name: '3' }).click()
+  await page.getByRole('button', { name: 'Undo' }).click()
+  await page.getByLabel('k for triage').selectOption('10')
+  await page.reload()
+  await expect(page.getByLabel('k for triage')).toHaveValue('10')
+  const [p] = (await stored(page)).projects
+  expect(p.labels).toEqual({ q2: { c2: 3 } })
+  expect(p.settings.k).toBe(10)
 })
 
 test.fail('#4 a candidate that shares no judged query with the baseline does not ship', async ({ page }) => {
