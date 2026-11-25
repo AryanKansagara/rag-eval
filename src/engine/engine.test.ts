@@ -369,6 +369,20 @@ test('toCsv quotes commas, quotes and newlines and blanks non-finite numbers', (
   assert.equal(toCsv([['a,b', 'say "hi"', NaN, 'x\ny']]), '"a,b","say ""hi""",,"x\ny"\n')
 })
 
+test('toCsv neutralises text that starts like a formula and leaves numbers alone', () => {
+  assert.equal(toCsv([['=1+1', '+1', '-1', '@x', '\tx', '\rx', -1, 'a=1', '', "'x"]]), `'=1+1,'+1,'-1,'@x,'\tx,"'\rx",-1,a=1,,'x\n`)
+  assert.equal(toCsv([['=HYPERLINK("http://example.invalid","x")']]), `"'=HYPERLINK(""http://example.invalid"",""x"")"\n`)
+})
+
+test('the worklist leaves the score of a query without gold blank', () => {
+  const rows = [{ queryId: 'q1', query: 'x', retrieved: R('c1') }, { queryId: 'q2', query: 'y', retrieved: R('c1') }]
+  const ctx = makeCtx({ corpus: [], qrels: { q2: { c9: 1 } }, spans: [] }, 'chunk')
+  const ev = evaluateRows(ctx, rows)
+  const csv = worklistCsv(triage(ev, rows, ctx, [], 5), new Map(), rows, new Map(ev.perQuery.map(q => [q.queryId, q.scores['ndcg@10']])), 'nDCG@10')
+  assert.match(csv, /^q1,x,unlabelled,,,,/m)
+  assert.match(csv, /^q2,y,not-retrieved,,,0\.0000,/m)
+})
+
 test('verdict never ships without a full comparison', () => {
   const ctx = makeCtx({ corpus: [], qrels: { q1: { a: 1 }, q2: { a: 1 }, q3: { a: 1 } }, spans: [] }, 'chunk')
   const run = (...qs: string[]) => evaluateRows(ctx, qs.map(q => ({ queryId: q, retrieved: R('a') })))

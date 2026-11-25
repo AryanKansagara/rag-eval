@@ -166,20 +166,24 @@ export function verdict(base: RunEval, cand: RunEval, thresholds: Threshold[], o
 
 // ---------- Exports ----------
 
+/** Text that a spreadsheet would run as a formula is prefixed with '; numbers are written as they are. */
 export function toCsv(rows: (string | number | undefined)[][]): string {
   return rows.map(r => r.map(v => {
-    const s = v === undefined || (typeof v === 'number' && !Number.isFinite(v)) ? '' : String(v)
+    let s = v === undefined || (typeof v === 'number' && !Number.isFinite(v)) ? '' : String(v)
+    if (typeof v === 'string' && /^[=+\-@\t\r]/.test(v)) s = `'${v}`
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
   }).join(',')).join('\n') + '\n'
 }
 
 export function worklistCsv(t: TriageRow[], queries: Map<string, Query>, rows: RunRow[], scores: Map<string, number>, metric: string): string {
   const rowText = new Map(rows.map(r => [r.queryId, r.query]))
+  // Queries without gold have no score, so their cell is blank.
+  const score = (id: string) => { const x = scores.get(id); return x !== undefined && Number.isFinite(x) ? x.toFixed(4) : undefined }
   const order: Bucket[] = ['not-retrieved', 'ranked-low', 'wrong-citation', 'no-gold', 'unlabelled']
   const list = t.filter(r => r.bucket !== 'ok').sort((a, b) => order.indexOf(a.bucket) - order.indexOf(b.bucket) || a.queryId.localeCompare(b.queryId))
   return toCsv([
     ['query_id', 'query', 'bucket', 'boundary_cut', 'first_relevant_rank', metric, 'gold_ids', 'top3_retrieved', 'suggested_fix'],
-    ...list.map(r => [r.queryId, queries.get(r.queryId)?.text ?? rowText.get(r.queryId) ?? '', r.bucket, r.boundaryCut ? 'yes' : '', r.firstRank || '', scores.get(r.queryId)?.toFixed(4), r.goldIds.join(' '), r.topIds.join(' '), (r.boundaryCut ? 'Gold answer is split across chunks; re-chunk. ' : '') + SUGGEST[r.bucket]]),
+    ...list.map(r => [r.queryId, queries.get(r.queryId)?.text ?? rowText.get(r.queryId) ?? '', r.bucket, r.boundaryCut ? 'yes' : '', r.firstRank || '', score(r.queryId), r.goldIds.join(' '), r.topIds.join(' '), (r.boundaryCut ? 'Gold answer is split across chunks; re-chunk. ' : '') + SUGGEST[r.bucket]]),
   ])
 }
 

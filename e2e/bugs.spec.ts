@@ -258,7 +258,7 @@ test('#12 the qrels download applies labels over imported judgments and scores t
   expect(mrr).toBe('0.500')
 })
 
-test.fail('#13 the worklist CSV never starts a cell with a formula', async ({ page }) => {
+test('#13 the worklist CSV never starts a cell with a formula', async ({ page }) => {
   await newProject(page)
   await importFiles(page, { name: 'run.jsonl', text: jsonl({ query_id: 'q1', query: '=1+1', retrieved: ['c1'] }) })
   await openTab(page, 'Failures')
