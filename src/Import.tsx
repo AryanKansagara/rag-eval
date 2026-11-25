@@ -9,7 +9,7 @@ import { ask, download, go, Link, toast } from './ui.tsx'
 
 interface Pending { id: string; p: Parsed; format: Format; map: Mapping; name: string }
 
-export default function DataTab({ project, ds }: TabProps) {
+export default function DataTab({ project, ds, w }: TabProps) {
   const [pending, setPending] = useState<Pending[]>([])
   const [drag, setDrag] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -136,7 +136,7 @@ export default function DataTab({ project, ds }: TabProps) {
           <div className="row gap-sm wrap">
             <button type="button" className="btn outline sm" disabled={!ds.corpus.length} onClick={() => download('corpus.jsonl', corpusToJsonl(ds.corpus), 'application/jsonl')}>corpus.jsonl</button>
             <button type="button" className="btn outline sm" disabled={!ds.queries.length} onClick={() => download('queries.jsonl', queriesToJsonl(ds.queries), 'application/jsonl')}>queries.jsonl</button>
-            <button type="button" className="btn outline sm" disabled={!Object.keys(ds.qrels).length && !ds.spans.length} onClick={() => download('qrels.tsv', qrelsToTsv(ds.qrels, ds.spans), 'text/tab-separated-values')}>qrels.tsv</button>
+            <button type="button" className="btn outline sm" disabled={!Object.keys(w.qrels).length && !ds.spans.length} onClick={() => download('qrels.tsv', qrelsToTsv(w.qrels, ds.spans), 'text/tab-separated-values')}>qrels.tsv</button>
             {ds.runs.map(r => <button key={r.id} type="button" className="btn outline sm" onClick={() => download(`${r.name.replace(/\W+/g, '-')}.jsonl`, runToJsonl(r), 'application/jsonl')}>{r.name}.jsonl</button>)}
           </div>
         </div>

@@ -221,7 +221,7 @@ test('#11 a negative TREC judgment earns no gain', async ({ page }) => {
   await expect(kpi(page, 'nDCG@10')).toHaveText('0.631')
 })
 
-test.fail('#12 labels are part of the qrels download', async ({ page }) => {
+test('#12 labels are part of the qrels download', async ({ page }) => {
   await newProject(page)
   await importFiles(page, CORPUS, { name: 'run.jsonl', text: jsonl(row('q1', ['c1'])) })
   await openTab(page, 'Label')
@@ -231,6 +231,31 @@ test.fail('#12 labels are part of the qrels download', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'qrels.tsv' })).toBeEnabled({ timeout: 3000 })
   const { text } = await downloadText(page, () => page.getByRole('button', { name: 'qrels.tsv' }).click())
   expect(text).toContain('q1\tc1\t3')
+})
+
+test('#12 the qrels download applies labels over imported judgments and scores the same in a new project', async ({ page }) => {
+  await newProject(page)
+  const run = { name: 'run.jsonl', text: jsonl(row('q1', ['c1', 'c2', 'c3']), row('q2', ['c4'])) }
+  await importFiles(page, CORPUS, { name: 'qrels.tsv', text: 'query-id\tcorpus-id\tscore\nq1\tc1\t3\nq1\tc3\t1\nq2\tc4\t0\n' }, run)
+  await openTab(page, 'Label')
+  await page.getByRole('radio', { name: 'All queries' }).click()
+  await expect(page.locator('#cand-0')).toBeVisible()
+  // c1 drops from 3 to 0, c2 is judged 2, c3 keeps its imported grade.
+  await page.keyboard.press('0')
+  await page.keyboard.press('2')
+  await expect.poll(async () => (await stored(page)).projects[0].labels).toEqual({ q1: { c1: 0, c2: 2 } })
+  await openTab(page, 'Overview')
+  const ndcg = await kpi(page, 'nDCG@10').innerText(), mrr = await kpi(page, 'MRR').innerText()
+  await openTab(page, 'Data')
+  const { text } = await downloadText(page, () => page.getByRole('button', { name: 'qrels.tsv' }).click())
+  expect(text.trim().split('\n').slice(1).map(l => l.trim())).toEqual(['q1\tc1\t0', 'q1\tc3\t1', 'q1\tc2\t2', 'q2\tc4\t0'])
+
+  await newProject(page)
+  await importFiles(page, CORPUS, { name: 'qrels.tsv', text }, run)
+  await openTab(page, 'Overview')
+  await expect(kpi(page, 'nDCG@10')).toHaveText(ndcg)
+  await expect(kpi(page, 'MRR')).toHaveText(mrr)
+  expect(mrr).toBe('0.500')
 })
 
 test.fail('#13 the worklist CSV never starts a cell with a formula', async ({ page }) => {
