@@ -37,6 +37,16 @@ test('nDCG uses graded gains 2^g - 1 against the ideal ordering', () => {
   close(metric('ndcg@10', { grades: [3, 1], ideal: [3, 1] }), 1)
 })
 
+test('a judgment below 0 has no gain, like an irrelevant result', () => {
+  const ctx = makeCtx({ corpus: [], qrels: { q1: { a: -2, b: 1 } }, spans: [] }, 'chunk')
+  const j = judge(ctx, 'q1', R('a', 'b'))
+  // DCG = 0 / log2(2) + 1 / log2(3); the ideal is 1 / log2(2). Grade 1 has gain 1 either way.
+  close(metric('ndcg@10', j), 1 / Math.log2(3))
+  close(metric('ndcg@10', j, 1, true), 1 / Math.log2(3))
+  close(metric('ndcg@10', judge(ctx, 'q1', R('a'))), 0)
+  close(metric('ndcg@10', j), metric('ndcg@10', judge(ctx, 'q1', R('zzz', 'b'))))
+})
+
 test('queries with nothing relevant return NaN so they are excluded, not scored zero', () => {
   assert.ok(Number.isNaN(metric('ndcg@10', { grades: [0, 0], ideal: [] })))
   assert.ok(Number.isNaN(metric('recall@5', { grades: [1], ideal: [1] }, 2)), 'grade 1 is not relevant at minGrade 2')
