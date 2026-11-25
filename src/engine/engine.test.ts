@@ -336,3 +336,66 @@ test('the CI gate script passes a better candidate and fails a regression (exit 
 test('toCsv quotes commas, quotes and newlines and blanks non-finite numbers', () => {
   assert.equal(toCsv([['a,b', 'say "hi"', NaN, 'x\ny']]), '"a,b","say ""hi""",,"x\ny"\n')
 })
+
+test('verdict never ships without a full comparison', () => {
+  const ctx = makeCtx({ corpus: [], qrels: { q1: { a: 1 }, q2: { a: 1 }, q3: { a: 1 } }, spans: [] }, 'chunk')
+  const run = (...qs: string[]) => evaluateRows(ctx, qs.map(q => ({ queryId: q, retrieved: R('a') })))
+  const drop = [{ metric: 'ndcg@10', maxDrop: 0.02 }]
+  const full = verdict(run('q1', 'q2'), run('q1', 'q2', 'q3'), drop)
+  assert.equal(full.ship, true)
+  assert.deepEqual(full.blockers, [])
+  const none = verdict(run('q1'), run('q2'), drop)
+  assert.equal(none.ship, false)
+  assert.match(none.blockers.join(), /share no judged queries/)
+  assert.equal(none.checks[0].pass, false)
+  const cut = verdict(run('q1', 'q2', 'q3'), run('q1'), drop)
+  assert.equal(cut.ship, false)
+  assert.match(cut.blockers.join(), /2 of the baseline's 3 judged/)
+  assert.equal(verdict(run('q1'), run('q1'), []).ship, false)
+  assert.equal(verdict(run('q1'), run('q1'), [{ metric: 'mrr' }]).ship, false)
+  assert.equal(verdict(run(), run(), drop).ship, false)
+  const same = run('q1')
+  assert.match(verdict(same, same, drop).blockers.join(), /same run/)
+})
+
+test('CI gate fails closed, and agrees with the app verdict on paired data', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gate-'))
+  const w = (n: string, o: unknown) => { const p = join(dir, n); writeFileSync(p, typeof o === 'string' ? o : JSON.stringify(o)); return p }
+  const script = w('rag-gate.mjs', CI_SCRIPT)
+  const gate = (cfg: unknown, base: unknown, cand: unknown) => {
+    try { return { code: 0, out: execFileSync(process.execPath, [script, w('t.json', cfg), w('a.json', base), w('b.json', cand)], { encoding: 'utf8', stdio: 'pipe' }) } }
+    catch (e) { const x = e as { status: number; stdout: string }; return { code: x.status, out: x.stdout } }
+  }
+  const file = (scores: (number | null)[], mean = scores.reduce((a: number, b) => a + (b ?? 0), 0) / scores.length) => ({ metrics: { mrr: mean }, perQuery: { mrr: Object.fromEntries(scores.map((s, i) => ['q' + i, s])) } })
+  const drop = { alpha: 0.05, thresholds: [{ metric: 'mrr', maxDrop: 0.03 }] }, floor = { thresholds: [{ metric: 'mrr', min: 0.5 }] }
+  const high = file(Array(20).fill(0.9)), low = file(Array(20).fill(0.1))
+  assert.equal(gate(drop, high, high).code, 0)
+  assert.equal(gate(drop, low, high).code, 0)
+  assert.match(gate(drop, high, low).out, /FAIL mrr .*dropped 0\.8000/)
+  // Two queries cannot reach p < 0.05 on either test, so the drop is not significant.
+  assert.equal(gate(drop, file([0.9, 0.9]), file([0.1, 0.95])).code, 0)
+  // Floors alone need no per-query data.
+  assert.equal(gate(floor, { metrics: { mrr: 0.9 } }, { metrics: { mrr: 0.6 } }).code, 0)
+  for (const [why, cfg, base, cand] of [
+    ['no metrics', drop, high, { metrics: {}, perQuery: high.perQuery }],
+    ['empty file', drop, high, {}],
+    ['null metric', floor, high, { ...high, metrics: { mrr: null } }],
+    ['text metric', floor, high, { ...high, metrics: { mrr: '0.9' } }],
+    ['no per-query scores', drop, { metrics: { mrr: 0.9 } }, { metrics: { mrr: 0.1 } }],
+    ['missing queries', drop, high, file([0.9])],
+    ['null per-query score', drop, high, file([null, ...Array(19).fill(0.9)], 0.9)],
+    ['other queries', drop, high, { metrics: { mrr: 0.9 }, perQuery: { mrr: { z: 0.9 } } }],
+    ['empty thresholds', { thresholds: [] }, high, high],
+    ['no thresholds key', {}, high, high],
+    ['nothing to check', { thresholds: [{ metric: 'mrr' }] }, high, high],
+    ['misspelt key', { thresholds: [{ metric: 'mrr', maxdrop: 0.03 }] }, high, high],
+    ['misspelt metric', { thresholds: [{ metric: 'mmr', maxDrop: 0.03 }] }, high, high],
+    ['text limit', { thresholds: [{ metric: 'mrr', min: 'x' }] }, high, high],
+  ] as const) assert.equal(gate(cfg, base, cand).code, 1, why)
+
+  const { ds } = buildSample()
+  const ctx = makeCtx(ds, 'chunk')
+  const [a, b] = ds.runs.map(r => evaluateRows(ctx, r.rows, ['ndcg@10', 'recall@5'], 1, 100))
+  for (const [x, y] of [[a, b], [b, a]]) for (const th of [[{ metric: 'ndcg@10', maxDrop: 0.01 }], [{ metric: 'recall@5', min: 0.6 }, { metric: 'ndcg@10', maxDrop: 0.2 }]])
+    assert.equal(gate(gateConfig(th), metricsExport('x', x, ['ndcg@10', 'recall@5']), metricsExport('y', y, ['ndcg@10', 'recall@5'])).code === 0, verdict(x, y, th).ship)
+})

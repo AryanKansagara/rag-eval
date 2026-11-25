@@ -20,7 +20,7 @@ export interface TabProps {
   project: P
   ds: Dataset
   w: Workspace
-  update(p: Partial<P>): void
+  update(p: Partial<P> | ((now: P) => Partial<P>)): void
   setSettings(p: Partial<Settings>): void
 }
 
@@ -40,9 +40,8 @@ export default function ProjectView({ id, tab: rawTab }: { id: string; tab: stri
     const { cand } = pickRuns(ds, project.settings)
     const label = `${cand.name} · ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
     const snap = makeSnapshot(w, cand, project.settings, label)
-    const before = project.snapshots
-    void update({ snapshots: [...before, snap] })
-    toast(`Saved a snapshot of ${cand.name}`, { tone: 'ok', undo: () => void update({ snapshots: before }) })
+    update(now => ({ snapshots: [...now.snapshots, snap] }))
+    toast(`Saved a snapshot of ${cand.name}`, { tone: 'ok', undo: () => update(now => ({ snapshots: now.snapshots.filter(s => s.id !== snap.id) })) })
   }
 
   useEffect(() => {
