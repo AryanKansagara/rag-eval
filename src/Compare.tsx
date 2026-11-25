@@ -96,7 +96,7 @@ export default function Compare({ project, ds, w, setSettings }: TabProps) {
           <div className="row gap-sm wrap" style={{ marginTop: 10 }}>
             <button type="button" className="btn ghost sm" onClick={() => setSettings({ thresholds: [...th, { metric: 'recall@10', maxDrop: 0.02 }] })}>Add threshold</button>
             <button type="button" className="btn ghost sm" onClick={() => setSettings({ thresholds: DEFAULT_THRESHOLDS.map(t => ({ ...t })) })}>Reset</button>
-            <label className="row gap-sm small">alpha <input type="number" step="0.01" min="0.001" max="0.5" value={project.settings.alpha} onChange={e => setSettings({ alpha: Number(e.target.value) || 0.05 })} style={{ width: 80 }} /></label>
+            <label className="row gap-sm small">alpha <input type="number" step="0.01" min="0.001" max="0.5" defaultValue={project.settings.alpha} onChange={e => { const a = Number(e.target.value); if (a > 0 && a < 1) setSettings({ alpha: a }) }} onBlur={e => { e.target.value = String(project.settings.alpha) }} style={{ width: 80 }} /></label>
           </div>
           <p className="muted small">A drop past "max drop" only blocks when it is significant at alpha; a floor always blocks. A candidate that is missing queries the baseline was scored on does not ship.</p>
         </div>

@@ -1,15 +1,15 @@
 import { useMemo, useRef, useState } from 'react'
-import { autoMap, corpusToJsonl, FIELDS, FORMATS, mergeFragment, qrelsToTsv, queriesToJsonl, readFile, runToJsonl, validate, type Format, type Mapping, type Parsed } from './engine/parse.ts'
+import { autoMap, corpusToJsonl, FIELDS, FORMATS, mergeFragment, qrelsToTsv, queriesToJsonl, readFile, restoreDataset, runToJsonl, validate, type Format, type Mapping, type Parsed } from './engine/parse.ts'
 import { emptyDataset, type Dataset } from './engine/types.ts'
 import type { TabProps } from './Project.tsx'
 import { createBlankProject, summarize, isPublicSample } from './projectData.ts'
-import { putData, saveProject, uuid } from './store.ts'
+import { getData, getProject, inDataQueue, putData, saveProject, uuid } from './store.ts'
 import { RAW_SYNC_LIMIT, useSync } from './sync.ts'
 import { ask, download, go, Link, toast } from './ui.tsx'
 
 interface Pending { id: string; p: Parsed; format: Format; map: Mapping; name: string }
 
-export default function DataTab({ project, ds, update }: TabProps) {
+export default function DataTab({ project, ds }: TabProps) {
   const [pending, setPending] = useState<Pending[]>([])
   const [drag, setDrag] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -17,8 +17,13 @@ export default function DataTab({ project, ds, update }: TabProps) {
   const sync = useSync()
   const rawSize = useMemo(() => project.sampleId ? 0 : JSON.stringify(ds).length, [ds, project.sampleId])
 
+  // Files already being imported, and the project that files dropped together on a sample go to.
+  const committing = useRef(new Set<string>())
+  const fromSample = useRef<string | null>(null)
+
   const readFiles = async (files: FileList | File[]) => {
     setBusy(true)
+    fromSample.current = null
     const next: Pending[] = []
     // Corpus first, so later files in the same drop can match retrieved text and gold answers against it.
     const sorted = [...files].sort((a, b) => Number(/corpus|chunk/i.test(b.name)) - Number(/corpus|chunk/i.test(a.name)))
@@ -35,11 +40,21 @@ export default function DataTab({ project, ds, update }: TabProps) {
   }
 
   const commit = async (pd: Pending) => {
-    const v = validate(pd.p, pd.format, pd.map, ds.corpus)
+    if (committing.current.has(pd.id)) return
+    committing.current.add(pd.id)
+    try { await inDataQueue(() => importFile(pd)) } finally { committing.current.delete(pd.id) }
+  }
+
+  const importFile = async (pd: Pending) => {
     const kind = FORMATS[pd.format].kind
     // Samples are read-only: importing into one starts a new project.
-    const target = project.sampleId ? await createBlankProject('My RAG eval') : project
-    const base: Dataset = project.sampleId ? emptyDataset() : ds
+    const target = project.sampleId
+      ? (fromSample.current && getProject(fromSample.current)) || await createBlankProject('My RAG eval')
+      : getProject(project.id)
+    if (!target) return
+    if (project.sampleId) fromSample.current = target.id
+    const base: Dataset = await getData(target.id) ?? emptyDataset()
+    const v = validate(pd.p, pd.format, pd.map, project.sampleId ? ds.corpus : base.corpus)
     const runMeta = kind === 'run' ? { id: uuid(), name: pd.name || `Run ${base.runs.length + 1}`, createdAt: Date.now() } : undefined
     const next = mergeFragment(base, v.fragment, runMeta)
     await putData(target.id, next)
@@ -47,17 +62,26 @@ export default function DataTab({ project, ds, update }: TabProps) {
     const settings = { ...target.settings }
     if (runMeta) { if (!settings.baseRunId || !next.runs.some(r => r.id === settings.baseRunId)) settings.baseRunId = next.runs[0].id; settings.candRunId = runMeta.id }
     if (kind === 'qrels' && next.spans.length && !Object.keys(next.qrels).length) settings.level = 'span'
-    await saveProject({ ...target, settings, imports: [...(project.sampleId ? [] : project.imports), meta], summary: summarize(next, target.labels), dataMissing: false })
+    await saveProject({ ...target, settings, imports: [...target.imports, meta], summary: summarize(next, target.labels), dataMissing: false })
     setPending(x => x.filter(y => y.id !== pd.id))
     toast(`Imported ${pd.p.fileName}: ${v.summary}${v.skipped ? `, skipped ${v.skipped} rows` : ''}`, { tone: 'ok' })
     if (project.sampleId) go(`/app/p/${target.id}/data`)
   }
 
-  const save = async (next: Dataset, msg: string, before: Dataset) => {
+  /** Edits the stored dataset and returns it as it was before. */
+  const edit = (change: (d: Dataset) => Dataset) => inDataQueue(async () => {
+    const before = await getData(project.id) ?? emptyDataset()
+    const next = change(before)
     await putData(project.id, next)
-    void update({ summary: summarize(next, project.labels) })
-    toast(msg, { undo: async () => { await putData(project.id, before); void update({ summary: summarize(before, project.labels), imports: [...project.imports] }) } })
+    const p = getProject(project.id)
+    if (p) await saveProject({ ...p, summary: summarize(next, p.labels) })
+    return before
+  })
+  const save = async (change: (d: Dataset) => Dataset, msg: string, undo: (now: Dataset, before: Dataset) => Dataset) => {
+    const before = await edit(change)
+    toast(msg, { undo: () => void edit(now => undo(now, before)) })
   }
+  const renameRun = (id: string, name: string) => (d: Dataset) => ({ ...d, runs: d.runs.map(r => r.id === id ? { ...r, name } : r) })
 
   return (
     <>
@@ -93,14 +117,14 @@ export default function DataTab({ project, ds, update }: TabProps) {
           {ds.runs.length === 0 ? <p className="muted small">No runs yet.</p> : (
             <ul className="run-list">{ds.runs.map(r => (
               <li key={r.id}>
-                <input defaultValue={r.name} aria-label="Run name" disabled={!!project.sampleId} onBlur={e => { const v = e.target.value.trim(); if (v && v !== r.name) void save({ ...ds, runs: ds.runs.map(x => x.id === r.id ? { ...x, name: v } : x) }, 'Run renamed', ds) }} />
+                <input key={r.name} defaultValue={r.name} aria-label="Run name" disabled={!!project.sampleId} onBlur={e => { const v = e.target.value.trim(); if (v && v !== r.name) void save(renameRun(r.id, v), 'Run renamed', renameRun(r.id, r.name)) }} />
                 <span className="muted tiny">{r.rows.length} queries · {new Date(r.createdAt).toLocaleDateString()}</span>
-                {!project.sampleId && <button type="button" className="btn danger-ghost sm" onClick={async () => { if (await ask(`Delete run "${r.name}"?`, 'Its snapshots stay in History. You can undo for a few seconds.', 'Delete run')) void save({ ...ds, runs: ds.runs.filter(x => x.id !== r.id) }, `Deleted ${r.name}`, ds) }}>Delete</button>}
+                {!project.sampleId && <button type="button" className="btn danger-ghost sm" onClick={async () => { if (await ask(`Delete run "${r.name}"?`, 'Its snapshots stay in History. You can undo for a few seconds.', 'Delete run')) void save(d => ({ ...d, runs: d.runs.filter(x => x.id !== r.id) }), `Deleted ${r.name}`, (now, before) => { const i = before.runs.findIndex(x => x.id === r.id); return i < 0 ? now : { ...now, runs: now.runs.toSpliced(i, 0, before.runs[i]) } }) }}>Delete</button>}
               </li>
             ))}</ul>
           )}
           {!project.sampleId && sync.user && rawSize > RAW_SYNC_LIMIT && <p className="warn-text small">This dataset is {(rawSize / 1e6).toFixed(1)} MB, over the {(RAW_SYNC_LIMIT / 1e6).toFixed(1)} MB sync limit: it stays on this device. Settings, labels and snapshots still sync.</p>}
-          {!project.sampleId && ds.runs.length + ds.corpus.length > 0 && <button type="button" className="btn danger-ghost sm" style={{ marginTop: 12 }} onClick={async () => { if (await ask('Clear all data?', 'Removes corpus, queries, qrels and runs from this project. Labels and snapshots stay. You can undo for a few seconds.', 'Clear data')) void save(emptyDataset(), 'Data cleared', ds) }}>Clear all data</button>}
+          {!project.sampleId && ds.runs.length + ds.corpus.length > 0 && <button type="button" className="btn danger-ghost sm" style={{ marginTop: 12 }} onClick={async () => { if (await ask('Clear all data?', 'Removes corpus, queries, qrels and runs from this project. Labels and snapshots stay. You can undo for a few seconds.', 'Clear data')) void save(emptyDataset, 'Data cleared', (now, before) => restoreDataset(before, now)) }}>Clear all data</button>}
         </div>
         <div className="panel">
           <h2>Import history</h2>
