@@ -39,3 +39,20 @@ test('unreadable JSON rows are errors with their line, count as skipped, and nev
     for (const f of Object.keys(FORMATS) as (keyof typeof FORMATS)[]) if (!FORMATS[f].label.startsWith('TREC')) assert.equal(load('data.json', text, f).v.ok, 0, `${text} as ${f}`)
   assert.equal(load('data.json', '[1, 2, 3, 4').v.ok, 0)
 })
+
+test('finite numbers in retrieved lists and Ragas id lists are ids; null and booleans are reported', () => {
+  const load = (text: string) => { const p = readFile('run.jsonl', text); return validate(p, p.format, {}) }
+  const ids = (v: ReturnType<typeof load>) => v.fragment.run!.rows[0].retrieved.map(x => x.id)
+  const run = load('{"query_id":"q1","retrieved":[12,13,0,-1]}')
+  assert.deepEqual([ids(run), run.issues], [['12', '13', '0', '-1'], []])
+  const ragas = load('{"query_id":"q1","user_input":"x","retrieved_context_ids":[1,2],"reference_context_ids":[1]}')
+  assert.deepEqual([ids(ragas), ragas.fragment.qrels, ragas.issues], [['1', '2'], { q1: { 1: 1 } }, []])
+  const bad = load('{"query_id":"q1","retrieved":[12,null,true,false,"13"]}')
+  assert.deepEqual(ids(bad), ['12', '13'])
+  assert.match(bad.issues[0].message, /Some retrieved items had no id or text/)
+  const badRefs = load('{"query_id":"q1","user_input":"x","retrieved_context_ids":[1],"reference_context_ids":[1,null,true]}')
+  assert.deepEqual(badRefs.fragment.qrels, { q1: { 1: 1 } })
+  assert.match(badRefs.issues[0].message, /Some reference contexts had no id or text/)
+  // A number JSON cannot hold exactly is kept, with a warning that it may not match.
+  assert.match(load('{"query_id":"q1","retrieved":[12345678901234567891]}').issues[0].message, /too large/)
+})

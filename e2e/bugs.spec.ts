@@ -194,7 +194,7 @@ test('#7 a null row is reported and does not blank the page', async ({ page }) =
   await expect(panel.locator('.issues')).toContainText('Expected a JSON object, got null')
 })
 
-test.fail('#8 numeric chunk ids are kept', async ({ page }) => {
+test('#8 numeric chunk ids are kept', async ({ page }) => {
   await newProject(page)
   await importFiles(page, { name: 'qrels.csv', text: 'query_id,chunk_id,relevance\nq1,13,1\n' }, { name: 'run.jsonl', text: '{"query_id":"q1","retrieved":[12,13]}\n' })
   await openTab(page, 'Overview')
