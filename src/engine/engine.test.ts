@@ -170,7 +170,7 @@ test('re-chunking simulator: sentence packing removes cuts that fixed windows ca
   const sent = simulate(docs, spans, { kind: 'sentence', size: 25 })
   assert.ok(fixed.cutRate > 0.2)
   assert.equal(sent.cutRate, 0)
-  assert.equal(recommend(docs, spans).best.cutRate, 0)
+  assert.equal(recommend(docs, spans).best!.cutRate, 0)
 })
 
 test('rebuildDocs reassembles overlapping chunks into the original text', () => {
@@ -178,6 +178,28 @@ test('rebuildDocs reassembles overlapping chunks into the original text', () => 
   const rs = chunkText(text, { kind: 'fixed', size: 3, overlap: 1 })
   const corpus = rs.map((r, i) => ({ id: 'd#' + i, docId: 'd', text: text.slice(r.s, r.e), start: r.s, end: r.e }))
   assert.equal(rebuildDocs(corpus)[0].text, text)
+})
+
+test('nothing is recommended when no gold span could be checked', () => {
+  const docs = rebuildDocs([{ id: 'c', docId: 'd', text: 'a b c', start: 0, end: 5 }])
+  assert.equal(recommend(docs, [{ queryId: 'q', docId: 'other', start: 0, end: 3 }]).best, undefined)
+  assert.equal(recommend(docs, [{ queryId: 'q', docId: 'd', start: 90, end: 99 }]).best, undefined)
+  assert.equal(recommend(docs, [{ queryId: 'q', docId: 'other', start: 0, end: 3 }, { queryId: 'q', docId: 'd', start: 0, end: 3 }]).best!.cutRate, 0)
+})
+
+test('a huge offset leaves its document out, warns on its row, and other documents are unchanged', () => {
+  const corpus: Chunk[] = [{ id: 'a', docId: 'd', text: 'hello', start: 0, end: 5 }, { id: 'b', docId: 'd', text: 'world', start: 2e9, end: 2e9 + 5 }, { id: 'c', docId: 'e', text: 'later', start: 3, end: 8 }]
+  const [d, e] = rebuildDocs(corpus)
+  assert.deepEqual([d.hasOffsets, d.tooFar, d.text], [false, 'b', 'hello\n\nworld'])
+  assert.deepEqual([e.hasOffsets, e.tooFar, e.text], [true, undefined, '   later'])
+  // Many gaps add up over documents too.
+  const many = rebuildDocs(Array.from({ length: 50 }, (_, i) => ({ id: `c${i}`, docId: `d${i}`, text: 'x', start: 9e6, end: 9e6 + 1 })))
+  assert.equal(many.filter(x => x.hasOffsets).length, 2)
+  const p = readFile('corpus.jsonl', corpusToJsonl(corpus))
+  const v = validate(p, 'corpus', autoMap('corpus', p.headers))
+  assert.deepEqual([v.ok, v.skipped, v.issues.map(i => [i.line, i.level])], [3, 0, [[2, 'warning']]])
+  const g = readFile('gold.csv', 'query_id,doc_id,answer_text\nq,d,world\n')
+  assert.doesNotThrow(() => validate(g, 'qrels', autoMap('qrels', g.headers), corpus))
 })
 
 test('diagnose flags tiny and orphan chunks and mid-sentence starts', () => {

@@ -250,7 +250,7 @@ test.fail('#14 a chunk that holds two gold spans has recall 1', async ({ page })
   await expect(kpi(page, 'Recall@5')).toHaveText('1.000')
 })
 
-test.fail('#15 nothing is recommended when no gold span matches a document', async ({ page }) => {
+test('#15 nothing is recommended when no gold span matches a document', async ({ page }) => {
   await newProject(page)
   await importFiles(page, { name: 'corpus.jsonl', text: jsonl({ chunk_id: 'c', doc_id: 'd', text: 'a b c', start: 0, end: 5 }) }, { name: 'gold.csv', text: 'query_id,doc_id,start,end\nq,other,0,3\n' }, { name: 'run.jsonl', text: jsonl(row('q', ['c'])) })
   await openTab(page, 'Chunking')
@@ -258,7 +258,7 @@ test.fail('#15 nothing is recommended when no gold span matches a document', asy
   await expect(page.locator('.recommend')).toHaveCount(0)
 })
 
-test.fail('#15 a huge offset does not crash the Chunking tab', async ({ page }) => {
+test('#15 a huge offset does not crash the Chunking tab', async ({ page }) => {
   await newProject(page)
   await importFiles(page, { name: 'corpus.jsonl', text: jsonl({ chunk_id: 'c', doc_id: 'd', text: 'a b c', start: 2e9, end: 2e9 + 5 }) })
   await openTab(page, 'Chunking')
