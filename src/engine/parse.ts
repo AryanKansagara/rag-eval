@@ -366,16 +366,21 @@ export function validate(p: Parsed, format: Format, map: Mapping, corpus: Chunk[
       const qid = str(field(r, 'queryId'))
       if (!qid) { err(r.line, 'Missing query id'); skipped++; continue }
       const id = str(field(r, 'id'))
-      const gRaw = num(field(r, 'grade'))
+      const gv = field(r, 'grade')
+      const gRaw = typeof gv === 'boolean' ? Number(gv) : num(gv)
       if (Number.isNaN(gRaw)) { err(r.line, `Relevance "${str(field(r, 'grade'))}" is not a number`); skipped++; continue }
       const g = gRaw === undefined ? 1 : gRaw
       if (g < 0 || g > 3) warn(r.line, `Grade ${g} is outside 0-3`)
-      let used = false
-      if (id) { (qrels[qid] ??= {})[id] = g; used = true }
       const doc = str(field(r, 'docId')) || (map.start || map.answer ? id : '')
       const start = num(field(r, 'start')), end = num(field(r, 'end'))
       const ans = str(field(r, 'answer'))
-      if (doc && start !== undefined && end !== undefined) {
+      const hasSpan = !!doc && (start !== undefined && end !== undefined || !!ans && !!map.answer)
+      // The default grade is for files without a grade column; a blank cell in one means nobody judged the row.
+      if (map.grade && gRaw === undefined && id && !hasSpan) { err(r.line, `Relevance of ${id} is blank`); skipped++; continue }
+      let used = false
+      if (id) { (qrels[qid] ??= {})[id] = g; used = true }
+      if (g <= 0) { /* A span graded not relevant is a judgment, but not a gold answer. */ }
+      else if (doc && start !== undefined && end !== undefined) {
         if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) err(r.line, 'Span end must be after start')
         else { spans.push({ queryId: qid, docId: doc, start, end }); used = true }
       } else if (doc && ans && map.answer) {
