@@ -127,9 +127,15 @@ export const DEFAULT_THRESHOLDS: Threshold[] = [
 ]
 
 export interface Check { metric: string; base: number; value: number; delta: number; p: number; pass: boolean; reason: string }
-export interface Verdict { ship: boolean; checks: Check[]; shared: number }
+export interface Verdict {
+  ship: boolean
+  checks: Check[]
+  shared: number
+  /** Why the comparison itself cannot support a ship, whatever the metrics say. */
+  blockers: string[]
+}
 
-/** Ship unless a metric falls under its floor, or drops by more than allowed with p < alpha. */
+/** Ship when the runs can be compared in full and no metric falls under its floor, or drops by more than allowed with p < alpha. */
 export function verdict(base: RunEval, cand: RunEval, thresholds: Threshold[], opts: { alpha?: number; requireSignificance?: boolean } = {}): Verdict {
   const alpha = opts.alpha ?? 0.05
   const metrics = [...new Set(thresholds.map(t => t.metric))]
@@ -141,14 +147,21 @@ export function verdict(base: RunEval, cand: RunEval, thresholds: Threshold[], o
     const reasons: string[] = []
     let pass = true
     if (t.min !== undefined && !(v >= t.min)) { pass = false; reasons.push(`${metricLabel(t.metric)} ${v.toFixed(3)} is under the floor ${t.min}`) }
-    if (t.maxDrop !== undefined && delta < -t.maxDrop) {
+    if (t.maxDrop !== undefined && !Number.isFinite(delta)) { pass = false; reasons.push('could not be compared') }
+    else if (t.maxDrop !== undefined && delta < -t.maxDrop) {
       const sig = p < alpha
       if (sig || opts.requireSignificance === false) { pass = false; reasons.push(`dropped ${(-delta).toFixed(3)} (allowed ${t.maxDrop}${sig ? `, p=${p.toFixed(3)}` : ''})`) }
       else reasons.push(`dropped ${(-delta).toFixed(3)} but not significant (p=${p.toFixed(2)})`)
     }
     return { metric: t.metric, base: b, value: v, delta, p, pass, reason: reasons.join('; ') || 'within thresholds' }
   })
-  return { ship: checks.every(c => c.pass), checks, shared: cmp.shared.length }
+  const blockers: string[] = []
+  const missing = base.scored.length - cmp.shared.length
+  if (base === cand) blockers.push('The baseline and the candidate are the same run')
+  if (!thresholds.some(t => t.min !== undefined || t.maxDrop !== undefined)) blockers.push('No thresholds are set, so nothing was checked')
+  if (!cmp.shared.length) blockers.push('The runs share no judged queries, so there is nothing to compare. Check that both logs use the same query ids')
+  else if (missing) blockers.push(`The candidate has no scored result for ${missing} of the baseline's ${base.scored.length} judged queries`)
+  return { ship: !blockers.length && checks.every(c => c.pass), checks, shared: cmp.shared.length, blockers }
 }
 
 // ---------- Exports ----------

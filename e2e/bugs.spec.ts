@@ -121,7 +121,7 @@ test('#3 Undo of one change keeps the changes made after it', async ({ page }) =
   expect(p.settings.k).toBe(10)
 })
 
-test.fail('#4 a candidate that shares no judged query with the baseline does not ship', async ({ page }) => {
+test('#4 a candidate that shares no judged query with the baseline does not ship', async ({ page }) => {
   await newProject(page)
   await importFiles(page, QRELS, BASE, { name: 'other.jsonl', text: jsonl(row('zz', ['c1'])) })
   await openTab(page, 'Regression')
@@ -130,12 +130,17 @@ test.fail('#4 a candidate that shares no judged query with the baseline does not
     await expect.poll(async () => (await stored(page)).projects[0].settings.thresholds[i].min).toBeUndefined()
   }
   await expect(page.locator('.verdict-head b')).toHaveText('No ship')
+  await expect(page.locator('.verdict')).toContainText('share no judged queries')
+  await expect(page.locator('main')).not.toContainText('NaN')
 })
 
-test.fail('#4 a candidate log cut off after the first query does not ship', async ({ page }) => {
+test('#4 a candidate log cut off after the first query does not ship', async ({ page }) => {
   await newProject(page)
   await importFiles(page, QRELS, BASE, { name: 'cut.jsonl', text: jsonl(row('qA', ['c1', 'c2'])) })
   await openTab(page, 'Regression')
+  await expect(page.locator('.verdict-head b')).toHaveText('No ship')
+  await expect(page.locator('.verdict')).toContainText('The candidate has no scored result for 3 of the baseline\'s 4 judged queries.')
+  await page.getByRole('link', { name: 'Printable report' }).click()
   await expect(page.locator('.verdict-head b')).toHaveText('No ship')
 })
 
